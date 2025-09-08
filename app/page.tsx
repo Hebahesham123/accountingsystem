@@ -1,9 +1,42 @@
+"use client"
+
 import Link from "next/link"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Calculator, FileText, TrendingUp, Users, PieChart, BookOpen, DollarSign, BarChart3 } from "lucide-react"
+import { AccountingService, type DashboardStats } from "@/lib/accounting-utils"
 
 export default function HomePage() {
+  const [stats, setStats] = useState<DashboardStats>({
+    totalAssets: 0,
+    netIncome: 0,
+    journalEntriesCount: 0,
+    activeAccountsCount: 0,
+  })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const loadStats = async () => {
+      try {
+        const dashboardStats = await AccountingService.getDashboardStats()
+        setStats(dashboardStats)
+      } catch (error) {
+        console.error("Error loading dashboard stats:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadStats()
+  }, [])
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+    }).format(amount)
+  }
   const features = [
     {
       title: "Chart of Accounts",
@@ -69,7 +102,9 @@ export default function HomePage() {
                 <DollarSign className="h-8 w-8 text-green-600" />
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600">Total Assets</p>
-                  <p className="text-2xl font-bold text-gray-900">$110,000</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {loading ? "..." : formatCurrency(stats.totalAssets)}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -81,7 +116,9 @@ export default function HomePage() {
                 <PieChart className="h-8 w-8 text-blue-600" />
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600">Net Income</p>
-                  <p className="text-2xl font-bold text-gray-900">$37,000</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {loading ? "..." : formatCurrency(stats.netIncome)}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -93,7 +130,9 @@ export default function HomePage() {
                 <FileText className="h-8 w-8 text-purple-600" />
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600">Journal Entries</p>
-                  <p className="text-2xl font-bold text-gray-900">156</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {loading ? "..." : stats.journalEntriesCount.toLocaleString()}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -105,7 +144,9 @@ export default function HomePage() {
                 <BookOpen className="h-8 w-8 text-orange-600" />
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600">Active Accounts</p>
-                  <p className="text-2xl font-bold text-gray-900">24</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {loading ? "..." : stats.activeAccountsCount.toLocaleString()}
+                  </p>
                 </div>
               </div>
             </CardContent>

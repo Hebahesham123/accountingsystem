@@ -7,17 +7,149 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { Edit, Printer, Download, Image, Eye } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { 
+  Edit, 
+  Printer, 
+  Download, 
+  Image, 
+  Eye, 
+  X, 
+  AlertCircle, 
+  Plus, 
+  Calendar,
+  DollarSign,
+  FileText,
+  Users,
+  Building,
+  CreditCard,
+  TrendingUp,
+  TrendingDown,
+  CheckCircle,
+  Clock,
+  Info,
+  RotateCcw
+} from 'lucide-react';
 import Link from 'next/link';
-import { type JournalEntry } from '@/lib/accounting-utils';
+import { AccountingService } from '@/lib/accounting-utils';
+import { supabase, type JournalEntry } from '@/lib/supabase';
 
 interface JournalEntryReviewProps {
   entry: JournalEntry;
   onClose: () => void;
 }
 
+interface AccountDetails {
+  id: string;
+  code: string;
+  name: string;
+  account_type: string;
+  description?: string;
+  is_active: boolean;
+  level: number;
+  parent_account_id?: string;
+  account_types?: {
+    id: string;
+    name: string;
+    normal_balance: string;
+    description?: string;
+  };
+}
+
+interface UserDetails {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
+interface PeriodDetails {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  is_locked: boolean;
+}
+
 export default function JournalEntryReview({ entry, onClose }: JournalEntryReviewProps) {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [accountDetails, setAccountDetails] = useState<AccountDetails[]>([]);
+  const [userDetails, setUserDetails] = useState<UserDetails | null>(null);
+  const [periodDetails, setPeriodDetails] = useState<PeriodDetails | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadEntityDetails();
+  }, [entry]);
+
+  const loadEntityDetails = async () => {
+    try {
+      setLoading(true);
+      
+      // Load account details for all lines
+      const accountIds = entry.journal_entry_lines?.map(line => line.account_id).filter(Boolean) || [];
+      console.log('Loading account details for IDs:', accountIds);
+      
+      if (accountIds.length > 0) {
+        const { data: accounts, error: accountsError } = await supabase
+          .from('accounts')
+          .select(`
+            id,
+            code,
+            name,
+            description,
+            is_active,
+            level,
+            parent_account_id,
+            account_type_id,
+            account_types (
+              id,
+              name,
+              normal_balance,
+              description
+            )
+          `)
+          .in('id', accountIds);
+
+        if (accountsError) {
+          console.error('Error loading account details:', accountsError);
+        } else if (accounts) {
+          console.log('Loaded accounts:', accounts);
+          setAccountDetails(accounts);
+        }
+      }
+
+      // Load user details
+      if (entry.created_by) {
+        const { data: user, error: userError } = await supabase
+          .from('users')
+          .select('id, name, email, role')
+          .eq('id', entry.created_by)
+          .single();
+
+        if (!userError && user) {
+          setUserDetails(user);
+        }
+      }
+
+      // Load period details
+      if (entry.period_id) {
+        const { data: period, error: periodError } = await supabase
+          .from('accounting_periods')
+          .select('id, name, start_date, end_date, is_locked')
+          .eq('id', entry.period_id)
+          .single();
+
+        if (!periodError && period) {
+          setPeriodDetails(period);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading entity details:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -51,339 +183,466 @@ export default function JournalEntryReview({ entry, onClose }: JournalEntryRevie
       : 'bg-red-100 text-red-800 border-red-200';
   };
 
+  const getAccountDetails = (accountId: string) => {
+    return accountDetails.find(acc => acc.id === accountId);
+  };
+
+  const getAccountFromLine = (line: any) => {
+    // First try to get account from the line's accounts property (loaded by getJournalEntries)
+    if (line.accounts) {
+      return {
+        id: line.accounts.id,
+        code: line.accounts.code,
+        name: line.accounts.name,
+        account_types: line.accounts.account_types
+      };
+    }
+    // Fallback to accountDetails (loaded separately)
+    const account = accountDetails.find(acc => acc.id === line.account_id);
+    if (account) {
+      console.log('Found account for line:', account);
+    } else {
+      console.log('No account found for line:', line.account_id, 'Available accounts:', accountDetails.map(a => a.id));
+    }
+    return account;
+  };
+
   const openImagePreview = (imageData: string) => {
-    const newWindow = window.open();
-    if (newWindow) {
-      newWindow.document.write(`
-        <html>
-          <head>
-            <title>Document Preview</title>
-            <style>
-              body { 
-                margin: 0; 
-                padding: 20px; 
-                text-align: center; 
-                background: #f8fafc; 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              }
-              img { 
-                max-width: 90vw; 
-                max-height: 90vh; 
-                object-fit: contain; 
-                border-radius: 12px; 
-                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-                border: 1px solid #e2e8f0;
-              }
-              .header { 
-                margin-bottom: 20px; 
-                color: #1e293b; 
-                font-size: 18px;
-                font-weight: 600;
-              }
-              .container {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                min-height: 100vh;
-                justify-content: center;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <div class="header">
-                <h2>Supporting Document</h2>
-                <p>Click outside the image or press ESC to close</p>
-              </div>
-              <img src="${imageData}" />
-            </div>
-          </body>
-        </html>
-      `);
+    setImagePreview(imageData);
+  };
+
+  const closeImagePreview = () => {
+    setImagePreview(null);
+  };
+
+  const handleReverse = async () => {
+    try {
+      await AccountingService.reverseJournalEntry(entry.id);
+      onClose();
+      // Refresh the page to show updated data
+      window.location.reload();
+    } catch (error) {
+      console.error('Error reversing journal entry:', error);
     }
   };
 
-  return (
-    <div className="max-h-[85vh] overflow-y-auto">
-      {/* Header */}
-      <div className="flex justify-between items-start mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{entry.entry_number}</h1>
-          <p className="text-gray-600 mt-1">Journal Entry Details</p>
-        </div>
-        <div className="flex gap-2">
-          <Link href={`/journal-entries/${entry.id}/edit`}>
-            <Button size="sm">
-              <Edit className="w-4 h-4 mr-2" />
-              Edit
-            </Button>
-          </Link>
-          <Button variant="outline" size="sm">
-            <Printer className="w-4 h-4 mr-2" />
-            Print
-          </Button>
-          <Button variant="outline" size="sm">
-            <Download className="w-4 h-4 mr-2" />
-            Export
-          </Button>
+  const hasLines = entry.journal_entry_lines && entry.journal_entry_lines.length > 0;
+  const lineCount = entry.journal_entry_lines?.length || 0;
+  const totalDebit = entry.total_debit || 0;
+  const totalCredit = entry.total_credit || 0;
+  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading entity details...</p>
+            </div>
+          </div>
         </div>
       </div>
+    );
+  }
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Main Content */}
-        <div className="space-y-6">
-          {/* Entry Information */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <span>Entry Information</span>
-                <Badge className={getStatusColor(entry.is_balanced)}>
-                  {entry.is_balanced ? 'Balanced' : 'Unbalanced'}
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Entry Number</Label>
-                    <p className="text-lg font-semibold font-mono">{entry.entry_number}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Entry Date</Label>
-                    <p className="text-lg">{formatDate(entry.entry_date)}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Reference</Label>
-                    <p className="text-sm bg-gray-50 p-2 rounded border">
-                      {entry.reference || 'No reference'}
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Total Debits</Label>
-                    <p className="text-2xl font-bold text-green-600">{formatCurrency(entry.total_debit)}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Total Credits</Label>
-                    <p className="text-2xl font-bold text-blue-600">{formatCurrency(entry.total_credit)}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Balance</Label>
-                    <p className={`text-lg font-semibold ${entry.is_balanced ? 'text-green-600' : 'text-red-600'}`}>
-                      {entry.is_balanced ? '✓ Balanced' : '✗ Unbalanced'}
-                    </p>
-                  </div>
-                </div>
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-7xl w-full max-h-[95vh] overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 mb-2">
+              <FileText className="w-6 h-6 text-blue-600" />
+              <h1 className="text-2xl font-bold text-gray-900 truncate">{entry.entry_number}</h1>
+              <Badge className={getStatusColor(isBalanced)}>
+                {isBalanced ? 'Balanced' : 'Unbalanced'}
+              </Badge>
+            </div>
+            <p className="text-gray-600">{entry.description}</p>
+            <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+              <div className="flex items-center gap-1">
+                <Calendar className="w-4 h-4" />
+                {formatDate(entry.entry_date)}
               </div>
-
-              {entry.description && (
-                <div className="pt-4 border-t">
-                  <Label className="text-sm font-medium text-gray-600">Description</Label>
-                  <p className="mt-2 text-gray-700 bg-gray-50 p-3 rounded border">
-                    {entry.description}
-                  </p>
+              {entry.reference && (
+                <div className="flex items-center gap-1">
+                  <FileText className="w-4 h-4" />
+                  Ref: {entry.reference}
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Link href={`/journal-entries/${entry.id}/edit`}>
+              <Button size="sm" className="bg-blue-600 hover:bg-blue-700">
+                <Edit className="w-4 h-4 mr-2" />
+                Edit Entry
+              </Button>
+            </Link>
+            <Button variant="outline" size="sm" onClick={handleReverse}>
+              <RotateCcw className="w-4 h-4 mr-2" />
+              Reverse
+            </Button>
+            <Button variant="outline" size="sm">
+              <Printer className="w-4 h-4 mr-2" />
+              Print
+            </Button>
+            <Button variant="outline" size="sm">
+              <Download className="w-4 h-4 mr-2" />
+              Export
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
 
-          {/* Journal Lines */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Journal Lines ({entry.journal_entry_lines?.length || 0})</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {entry.journal_entry_lines && entry.journal_entry_lines.length > 0 ? (
-                <div className="space-y-4">
-                  <div className="border rounded-lg overflow-hidden">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-gray-50">
-                          <TableHead className="font-semibold">Account</TableHead>
-                          <TableHead className="font-semibold">Description</TableHead>
-                          <TableHead className="text-right font-semibold">Debit</TableHead>
-                          <TableHead className="text-right font-semibold">Credit</TableHead>
-                          <TableHead className="font-semibold">Document</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {entry.journal_entry_lines.map((line: any, index: number) => (
-                          <TableRow key={line.id} className="hover:bg-gray-50">
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                {line.accounts && (
-                                  <Badge 
-                                    variant="outline" 
-                                    className={`${getAccountTypeColor(line.accounts.account_type)} border`}
-                                  >
-                                    {line.accounts.account_type}
-                                  </Badge>
-                                )}
-                                <div className="min-w-0">
-                                  <p className="font-mono text-sm font-medium">
-                                    {line.accounts?.code || 'N/A'}
-                                  </p>
-                                  <p className="text-xs text-gray-600 truncate max-w-[200px]">
-                                    {line.accounts?.name || 'Unknown Account'}
-                                  </p>
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <p className="text-sm">{line.description || '-'}</p>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {line.debit_amount > 0 ? (
-                                <span className="font-semibold text-green-600">
-                                  {formatCurrency(line.debit_amount)}
-                                </span>
-                              ) : (
-                                <span className="text-gray-400">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {line.credit_amount > 0 ? (
-                                <span className="font-semibold text-blue-600">
-                                  {formatCurrency(line.credit_amount)}
-                                </span>
-                              ) : (
-                                <span className="text-gray-400">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {line.image_data ? (
-                                <div className="flex items-center gap-2">
-                                  <img
-                                    src={line.image_data}
-                                    alt="Supporting document"
-                                    className="w-16 h-16 object-cover rounded-lg border-2 border-blue-200 cursor-pointer hover:border-blue-400 hover:shadow-md transition-all duration-200"
-                                    onClick={() => openImagePreview(line.image_data)}
-                                  />
-                                  <div className="flex flex-col">
-                                    <span className="text-xs font-medium text-blue-600">📄 Document</span>
-                                    <Button 
-                                      variant="ghost" 
-                                      size="sm" 
-                                      className="h-6 px-2 text-xs"
-                                      onClick={() => openImagePreview(line.image_data)}
-                                    >
-                                      <Eye className="w-3 h-3 mr-1" />
-                                      View
-                                    </Button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-2">
-                                  <div className="w-16 h-16 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center">
-                                    <span className="text-gray-400 text-xs">No doc</span>
-                                  </div>
-                                  <span className="text-xs text-gray-500">No document</span>
-                                </div>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+        {/* Content */}
+        <ScrollArea className="h-[calc(95vh-120px)]">
+          <div className="p-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Main Content - Takes 2 columns */}
+              <div className="lg:col-span-2 space-y-6">
+                {/* Journal Entry Lines */}
+                <Card>
+                  <CardHeader className="pb-4">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2">
+                        <FileText className="w-5 h-5" />
+                        Journal Entry Lines
+                      </CardTitle>
+                      <Badge variant="outline">
+                        {lineCount} {lineCount === 1 ? 'Line' : 'Lines'}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {hasLines ? (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Line #</TableHead>
+                              <TableHead>Account</TableHead>
+                              <TableHead>Account Type</TableHead>
+                              <TableHead>Description</TableHead>
+                              <TableHead className="text-right">Debit</TableHead>
+                              <TableHead className="text-right">Credit</TableHead>
+                              <TableHead>Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {entry.journal_entry_lines?.map((line, index) => {
+                              const account = getAccountFromLine(line);
+                              return (
+                                <TableRow key={line.id}>
+                                  <TableCell className="font-medium">
+                                    {line.line_number || index + 1}
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="space-y-1">
+                                      <div className="font-medium">
+                                        {account ? `${account.code} - ${account.name}` : 'Unknown Account'}
+                                      </div>
+                                      {account?.description && (
+                                        <div className="text-xs text-gray-500">
+                                          {account.description}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    {account?.account_types ? (
+                                      <Badge className={getAccountTypeColor(account.account_types.name)}>
+                                        {account.account_types.name}
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline">Unknown</Badge>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="max-w-xs">
+                                      <p className="text-sm truncate">
+                                        {line.description || 'No description'}
+                                      </p>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono">
+                                    {line.debit_amount > 0 ? formatCurrency(line.debit_amount) : '-'}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono">
+                                    {line.credit_amount > 0 ? formatCurrency(line.credit_amount) : '-'}
+                                  </TableCell>
+                                  <TableCell>
+                                    {line.image_data && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => openImagePreview(line.image_data)}
+                                      >
+                                        <Image className="w-4 h-4" />
+                                      </Button>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        <AlertCircle className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                        <p className="text-lg font-medium">No journal entry lines found</p>
+                        <p className="text-sm">This entry appears to be missing its detail lines.</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
 
-                  {/* Totals Row */}
-                  <div className="bg-gray-50 border rounded-lg p-4">
-                    <div className="flex justify-between items-center">
-                      <span className="font-semibold text-gray-700">Totals</span>
-                      <div className="flex gap-8">
-                        <div className="text-right">
-                          <span className="text-sm text-gray-600">Debits:</span>
-                          <span className="ml-2 font-bold text-green-600">
-                            {formatCurrency(entry.total_debit)}
-                          </span>
+                {/* Financial Summary */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <DollarSign className="w-5 h-5" />
+                      Financial Summary
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium text-gray-600">Total Debits</Label>
+                        <div className="text-2xl font-bold text-green-600">
+                          {formatCurrency(totalDebit)}
                         </div>
-                        <div className="text-right">
-                          <span className="text-sm text-gray-600">Credits:</span>
-                          <span className="ml-2 font-bold text-blue-600">
-                            {formatCurrency(entry.total_credit)}
-                          </span>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium text-gray-600">Total Credits</Label>
+                        <div className="text-2xl font-bold text-blue-600">
+                          {formatCurrency(totalCredit)}
                         </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <p>No journal lines found for this entry.</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                    <Separator className="my-4" />
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-600">Balance Status:</span>
+                      <div className="flex items-center gap-2">
+                        {isBalanced ? (
+                          <>
+                            <CheckCircle className="w-4 h-4 text-green-600" />
+                            <span className="text-green-600 font-medium">Balanced</span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertCircle className="w-4 h-4 text-red-600" />
+                            <span className="text-red-600 font-medium">
+                              Out of Balance by {formatCurrency(Math.abs(totalDebit - totalCredit))}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
 
-        {/* Right Panel */}
-        <div className="space-y-6">
-          {/* Entry Summary */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Entry Summary</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-600">Total Lines:</span>
-                <span className="font-medium">{entry.journal_entry_lines?.length || 0}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-600">Has Documents:</span>
-                <span className="font-medium">
-                  {entry.journal_entry_lines?.some((line: any) => line.image_data) ? 'Yes' : 'No'}
-                </span>
-              </div>
-              <Separator />
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Total Debits:</span>
-                  <span className="font-semibold text-green-600">{formatCurrency(entry.total_debit)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Total Credits:</span>
-                  <span className="font-semibold text-blue-600">{formatCurrency(entry.total_credit)}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              {/* Right Panel - Takes 1 column */}
+              <div className="space-y-6">
+                {/* Entry Information */}
+                <Card>
+                  <CardHeader className="pb-4">
+                    <CardTitle className="flex items-center gap-2">
+                      <Info className="w-5 h-5" />
+                      Entry Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-gray-600">Entry Number</Label>
+                      <p className="font-mono text-sm bg-gray-50 p-2 rounded">
+                        {entry.entry_number}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-gray-600">Entry Date</Label>
+                      <p className="text-sm">{formatDate(entry.entry_date)}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-gray-600">Description</Label>
+                      <p className="text-sm">{entry.description}</p>
+                    </div>
+                    {entry.reference && (
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium text-gray-600">Reference</Label>
+                        <p className="text-sm font-mono bg-gray-50 p-2 rounded">
+                          {entry.reference}
+                        </p>
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-gray-600">Created</Label>
+                      <p className="text-sm">{formatDate(entry.created_at)}</p>
+                    </div>
+                    {entry.updated_at !== entry.created_at && (
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium text-gray-600">Last Updated</Label>
+                        <p className="text-sm">{formatDate(entry.updated_at)}</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
 
-          {/* Account Types */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Account Types</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {entry.journal_entry_lines?.reduce((acc: any, line: any) => {
-                  const type = line.accounts?.account_type;
-                  if (type && !acc[type]) {
-                    acc[type] = true;
-                  }
-                  return acc;
-                }, {}) && Object.keys(entry.journal_entry_lines?.reduce((acc: any, line: any) => {
-                  const type = line.accounts?.account_type;
-                  if (type && !acc[type]) {
-                    acc[type] = true;
-                  }
-                  return acc;
-                }, {}) || {}).map((type) => (
-                  <Badge 
-                    key={type} 
-                    variant="outline" 
-                    className={`${getAccountTypeColor(type)} border w-full justify-start`}
-                  >
-                    {type}
-                  </Badge>
-                ))}
+                {/* User Information */}
+                {userDetails && (
+                  <Card>
+                    <CardHeader className="pb-4">
+                      <CardTitle className="flex items-center gap-2">
+                        <Users className="w-5 h-5" />
+                        Created By
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium text-gray-600">Name</Label>
+                        <p className="text-sm font-medium">{userDetails.name}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium text-gray-600">Email</Label>
+                        <p className="text-sm">{userDetails.email}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium text-gray-600">Role</Label>
+                        <Badge variant="outline" className="capitalize">
+                          {userDetails.role}
+                        </Badge>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Period Information */}
+                {periodDetails && (
+                  <Card>
+                    <CardHeader className="pb-4">
+                      <CardTitle className="flex items-center gap-2">
+                        <Calendar className="w-5 h-5" />
+                        Accounting Period
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium text-gray-600">Period Name</Label>
+                        <p className="text-sm font-medium">{periodDetails.name}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium text-gray-600">Start Date</Label>
+                        <p className="text-sm">{formatDate(periodDetails.start_date)}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium text-gray-600">End Date</Label>
+                        <p className="text-sm">{formatDate(periodDetails.end_date)}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium text-gray-600">Status</Label>
+                        <Badge className={periodDetails.is_locked ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}>
+                          {periodDetails.is_locked ? 'Locked' : 'Open'}
+                        </Badge>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Account Types Summary */}
+                {entry.journal_entry_lines && entry.journal_entry_lines.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-4">
+                      <CardTitle className="flex items-center gap-2">
+                        <Building className="w-5 h-5" />
+                        Account Types Used
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {Array.from(new Set(
+                          entry.journal_entry_lines
+                            .map(line => getAccountFromLine(line)?.account_types?.name)
+                            .filter(Boolean)
+                        )).map(type => (
+                          <div key={type} className="flex items-center justify-between">
+                            <span className="text-sm">{type}</span>
+                            <Badge className={getAccountTypeColor(type!)}>
+                              {entry.journal_entry_lines.filter(line => 
+                                getAccountFromLine(line)?.account_types?.name === type
+                              ).length}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Quick Actions */}
+                <Card>
+                  <CardHeader className="pb-4">
+                    <CardTitle className="flex items-center gap-2">
+                      <Plus className="w-5 h-5" />
+                      Quick Actions
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Link href={`/journal-entries/${entry.id}/edit`} className="block">
+                      <Button className="w-full justify-start" variant="outline">
+                        <Edit className="w-4 h-4 mr-2" />
+                        Edit This Entry
+                      </Button>
+                    </Link>
+                    <Button 
+                      className="w-full justify-start" 
+                      variant="outline"
+                      onClick={handleReverse}
+                    >
+                      <RotateCcw className="w-4 h-4 mr-2" />
+                      Reverse Entry
+                    </Button>
+                    <Button className="w-full justify-start" variant="outline">
+                      <Printer className="w-4 h-4 mr-2" />
+                      Print Entry
+                    </Button>
+                    <Button className="w-full justify-start" variant="outline">
+                      <Download className="w-4 h-4 mr-2" />
+                      Export Entry
+                    </Button>
+                  </CardContent>
+                </Card>
               </div>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </div>
+        </ScrollArea>
       </div>
+
+      {/* Image Preview Modal */}
+      {imagePreview && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-60">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold">Document Preview</h3>
+              <Button variant="ghost" size="sm" onClick={closeImagePreview}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="p-4">
+              <img
+                src={imagePreview}
+                alt="Document preview"
+                className="max-w-full max-h-[70vh] object-contain mx-auto"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

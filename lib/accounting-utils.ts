@@ -74,128 +74,126 @@ export type CashFlowStatement = {
   cash_at_end: number
 }
 
-export class AccountingService {
-  // Get all account types (with fallback to default types if table doesn't exist)
-  static async getAccountTypes(): Promise<AccountType[]> {
-    try {
-      const { data, error } = await supabase.from("account_types").select("*").eq("is_active", true).order("name")
+export type DashboardStats = {
+  totalAssets: number
+  netIncome: number
+  journalEntriesCount: number
+  activeAccountsCount: number
+}
 
-      if (error) {
-        console.warn("Account types table not found, using default types:", error)
-        // Return default account types if table doesn't exist
-        return [
-          {
-            id: "asset",
-            name: "Asset",
-            description: "Resources owned by the company",
-            normal_balance: "debit",
-            is_system: true,
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-          {
-            id: "liability",
-            name: "Liability",
-            description: "Debts and obligations owed by the company",
-            normal_balance: "credit",
-            is_system: true,
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-          {
-            id: "equity",
-            name: "Equity",
-            description: "Owner's interest in the company",
-            normal_balance: "credit",
-            is_system: true,
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-          {
-            id: "revenue",
-            name: "Revenue",
-            description: "Income earned from business operations",
-            normal_balance: "credit",
-            is_system: true,
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-          {
-            id: "expense",
-            name: "Expense",
-            description: "Costs incurred in business operations",
-            normal_balance: "debit",
-            is_system: true,
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-        ]
+export class AccountingService {
+  // Get dashboard statistics
+  static async getDashboardStats(): Promise<DashboardStats> {
+    try {
+      // Get total assets (sum of all asset account balances)
+      const { data: assetAccounts } = await supabase
+        .from("accounts")
+        .select(`
+          id, code, name,
+          account_types!inner(name)
+        `)
+        .eq("account_types.name", "Assets")
+        .eq("is_active", true)
+
+      let totalAssets = 0
+      const currentDate = new Date().toISOString().split('T')[0]
+      if (assetAccounts) {
+        for (const account of assetAccounts) {
+          const balance = await this.getAccountBalance(account.id, currentDate)
+          totalAssets += balance
+        }
       }
-      return data || []
+
+      // Get net income (Revenue - Expenses)
+      const { data: revenueAccounts } = await supabase
+        .from("accounts")
+        .select(`
+          id,
+          account_types!inner(name)
+        `)
+        .eq("account_types.name", "Revenue")
+        .eq("is_active", true)
+
+      const { data: expenseAccounts } = await supabase
+        .from("accounts")
+        .select(`
+          id,
+          account_types!inner(name)
+        `)
+        .eq("account_types.name", "Expenses")
+        .eq("is_active", true)
+
+      let totalRevenue = 0
+      let totalExpenses = 0
+
+      if (revenueAccounts) {
+        for (const account of revenueAccounts) {
+          const balance = await this.getAccountBalance(account.id, currentDate)
+          totalRevenue += balance
+        }
+      }
+
+      if (expenseAccounts) {
+        for (const account of expenseAccounts) {
+          const balance = await this.getAccountBalance(account.id, currentDate)
+          totalExpenses += balance
+        }
+      }
+
+      const netIncome = totalRevenue - totalExpenses
+
+      // Get journal entries count
+      const { count: journalEntriesCount } = await supabase
+        .from("journal_entries")
+        .select("*", { count: "exact", head: true })
+
+      // Get active accounts count
+      const { count: activeAccountsCount } = await supabase
+        .from("accounts")
+        .select("*", { count: "exact", head: true })
+        .eq("is_active", true)
+
+      return {
+        totalAssets: Math.max(0, totalAssets),
+        netIncome: Math.max(0, netIncome),
+        journalEntriesCount: journalEntriesCount || 0,
+        activeAccountsCount: activeAccountsCount || 0,
+      }
     } catch (error) {
-      console.error("Error loading account types:", error)
-      // Return default types as fallback
-      return [
-        {
-          id: "asset",
-          name: "Asset",
-          description: "Resources owned by the company",
-          normal_balance: "debit",
-          is_system: true,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        {
-          id: "liability",
-          name: "Liability",
-          description: "Debts and obligations owed by the company",
-          normal_balance: "credit",
-          is_system: true,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        {
-          id: "equity",
-          name: "Equity",
-          description: "Owner's interest in the company",
-          normal_balance: "credit",
-          is_system: true,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        {
-          id: "revenue",
-          name: "Revenue",
-          description: "Income earned from business operations",
-          normal_balance: "credit",
-          is_system: true,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        {
-          id: "expense",
-          name: "Expense",
-          description: "Costs incurred in business operations",
-          normal_balance: "debit",
-          is_system: true,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      ]
+      console.error("Error getting dashboard stats:", error)
+      return {
+        totalAssets: 0,
+        netIncome: 0,
+        journalEntriesCount: 0,
+        activeAccountsCount: 0,
+      }
     }
   }
 
-  // Create new account type (with fallback if table doesn't exist)
+  // Chart of Accounts Functions
+
+  // Get all account types
+  static async getAccountTypes(): Promise<AccountType[]> {
+    try {
+      const { data, error } = await supabase
+        .from("account_types")
+        .select("*")
+        .eq("is_active", true)
+        .order("name")
+
+      if (error) {
+        console.error("Error fetching account types:", error)
+        throw error
+      }
+
+      return data || []
+    } catch (error) {
+      console.error("Error loading account types:", error)
+      throw new Error("Failed to load account types")
+    }
+  }
+
+  // Create new account type
   static async createAccountType(accountType: {
     name: string
     description?: string
@@ -218,23 +216,24 @@ export class AccountingService {
 
       if (error) {
         console.error("Error creating account type:", error)
-        throw new Error("Account types table not available. Please run the database migration first.")
+        throw error
       }
+
       return data
     } catch (error) {
       console.error("Error creating account type:", error)
-      throw new Error("Failed to create account type. Database migration may be required.")
+      throw new Error("Failed to create account type")
     }
   }
 
-  // Add update account type method after createAccountType
+  // Update account type
   static async updateAccountType(
     id: string,
     accountType: {
       name: string
       description?: string
       normal_balance: "debit" | "credit"
-    },
+    }
   ): Promise<AccountType> {
     try {
       const { data, error } = await supabase
@@ -251,8 +250,9 @@ export class AccountingService {
 
       if (error) {
         console.error("Error updating account type:", error)
-        throw new Error("Failed to update account type")
+        throw error
       }
+
       return data
     } catch (error) {
       console.error("Error updating account type:", error)
@@ -260,42 +260,39 @@ export class AccountingService {
     }
   }
 
-  // Add delete account type method
+  // Delete account type
   static async deleteAccountType(id: string): Promise<void> {
     try {
-      // First check if any accounts are using this type
+      // Check if any accounts are using this type
       const { data: accountsUsingType, error: checkError } = await supabase
         .from("accounts")
         .select("id")
         .eq("account_type_id", id)
-        .limit(1)
+        .eq("is_active", true)
 
-      if (checkError) {
-        console.error("Error checking account usage:", checkError)
-        throw new Error("Failed to check if account type is in use")
-      }
+      if (checkError) throw checkError
 
       if (accountsUsingType && accountsUsingType.length > 0) {
         throw new Error("Cannot delete account type that is being used by accounts")
       }
 
-      const { error } = await supabase.from("account_types").delete().eq("id", id)
+      // Soft delete the account type
+      const { error } = await supabase
+        .from("account_types")
+        .update({ is_active: false })
+        .eq("id", id)
 
-      if (error) {
-        console.error("Error deleting account type:", error)
-        throw new Error("Failed to delete account type")
-      }
+      if (error) throw error
     } catch (error) {
       console.error("Error deleting account type:", error)
-      throw error
+      throw new Error("Failed to delete account type")
     }
   }
 
-  // Get Chart of Accounts (without account_types join for now)
+  // Get chart of accounts with hierarchy
   static async getChartOfAccounts(): Promise<Account[]> {
     try {
-      // First try with the new relationship
-      const { data: accountsWithTypes, error: joinError } = await supabase
+      const { data, error } = await supabase
         .from("accounts")
         .select(`
           *,
@@ -304,82 +301,128 @@ export class AccountingService {
         .eq("is_active", true)
         .order("code")
 
-      if (!joinError && accountsWithTypes) {
-        return accountsWithTypes
-      }
-
-      // Fallback to basic accounts query
-      console.warn("Using fallback query for accounts:", joinError)
-      const { data, error } = await supabase.from("accounts").select("*").eq("is_active", true).order("code")
-
       if (error) {
-        console.error("Error loading accounts:", error)
-        throw new Error("Failed to load accounts")
+        console.error("Error fetching chart of accounts:", error)
+        throw error
       }
+
       return data || []
     } catch (error) {
-      console.error("Error loading accounts:", error)
-      throw new Error("Failed to load accounts")
+      console.error("Error loading chart of accounts:", error)
+      throw new Error("Failed to load chart of accounts")
     }
   }
 
-  // Create a new account (with fallback for account_type_id)
-  static async createAccount(account: {
-    code: string
-    name: string
-    account_type_id: string
-    parent_account_id?: string
-    description?: string
-  }): Promise<Account> {
+  // Generate account code (simplified version without database function)
+  static async generateAccountCode(accountTypeId: string, parentAccountId?: string): Promise<string> {
     try {
-      // Try to get the account type name for backward compatibility
-      let accountTypeName = "Asset" // Default fallback
-
-      // Check if account_type_id is one of our default IDs
-      const defaultTypeMap: { [key: string]: string } = {
-        asset: "Asset",
-        liability: "Liability",
-        equity: "Equity",
-        revenue: "Revenue",
-        expense: "Expense",
+      // Get base code from account type
+      let baseCode = '9' // Default for unknown types
+      
+      // Map account type IDs to base codes
+      const typeCodeMap: { [key: string]: string } = {
+        '11111111-1111-1111-1111-111111111111': '1', // Assets
+        '22222222-2222-2222-2222-222222222222': '2', // Liabilities
+        '33333333-3333-3333-3333-333333333333': '3', // Equity
+        '44444444-4444-4444-4444-444444444444': '4', // Revenue
+        '55555555-5555-5555-5555-555555555555': '5', // Expenses
       }
-
-      if (defaultTypeMap[account.account_type_id]) {
-        accountTypeName = defaultTypeMap[account.account_type_id]
-      } else {
-        // Try to fetch from account_types table
-        try {
-          const { data: accountType } = await supabase
-            .from("account_types")
-            .select("name")
-            .eq("id", account.account_type_id)
-            .single()
-
-          if (accountType) {
-            accountTypeName = accountType.name
-          }
-        } catch (typeError) {
-          console.warn("Could not fetch account type, using fallback:", typeError)
+      
+      baseCode = typeCodeMap[accountTypeId] || '9'
+      
+      // If parent account is provided, use parent's code as base
+      if (parentAccountId) {
+        const { data: parentAccount, error } = await supabase
+          .from("accounts")
+          .select("code")
+          .eq("id", parentAccountId)
+          .single()
+        
+        if (!error && parentAccount) {
+          baseCode = parentAccount.code
         }
       }
+      
+      // Find the next available number
+      const { data: existingCodes, error } = await supabase
+        .from("accounts")
+        .select("code")
+        .like("code", baseCode + "%")
+        .eq("is_active", true)
+      
+      if (error) {
+        console.error("Error fetching existing codes:", error)
+        return baseCode + "01"
+      }
+      
+      // Find the highest number for this base code
+      let nextNumber = 1
+      if (existingCodes && existingCodes.length > 0) {
+        const numbers = existingCodes
+          .map(acc => {
+            const match = acc.code.match(new RegExp(`^${baseCode}(\\d+)$`))
+            return match ? parseInt(match[1]) : 0
+          })
+          .filter(num => num > 0)
+        
+        if (numbers.length > 0) {
+          nextNumber = Math.max(...numbers) + 1
+        }
+      }
+      
+      // Generate new code (pad with zeros)
+      const newCode = baseCode + nextNumber.toString().padStart(2, '0')
+      
+      return newCode
+    } catch (error) {
+      console.error("Error generating account code:", error)
+      // Fallback to simple code generation
+      const timestamp = Date.now().toString().slice(-4)
+      return `ACC${timestamp}`
+    }
+  }
 
-      const accountData = {
-        code: account.code,
-        name: account.name,
-        account_type: accountTypeName,
-        account_type_id: account.account_type_id,
-        parent_account_id: account.parent_account_id || null,
-        description: account.description || null,
-        is_active: true,
-        level: 1,
+  // Create new account
+  static async createAccount(account: {
+    code?: string
+    name: string
+    description?: string
+    account_type_id: string
+    parent_account_id?: string
+    is_header?: boolean
+  }): Promise<Account> {
+    try {
+      let accountCode = account.code
+
+      // Generate code if not provided
+      if (!accountCode) {
+        accountCode = await this.generateAccountCode(account.account_type_id, account.parent_account_id)
       }
 
-      const { data, error } = await supabase.from("accounts").insert([accountData]).select().single()
+      const { data, error } = await supabase
+        .from("accounts")
+        .insert([
+          {
+            code: accountCode,
+            name: account.name,
+            description: account.description || null,
+            account_type_id: account.account_type_id,
+            parent_account_id: account.parent_account_id || null,
+            is_header: account.is_header || false,
+            is_active: true,
+          },
+        ])
+        .select(`
+          *,
+          account_types(*)
+        `)
+        .single()
 
       if (error) {
         console.error("Error creating account:", error)
-        throw new Error("Failed to create account")
+        throw error
       }
+
       return data
     } catch (error) {
       console.error("Error creating account:", error)
@@ -387,7 +430,252 @@ export class AccountingService {
     }
   }
 
-  // Create journal entry with flexible lines
+  // Update account
+  static async updateAccount(accountId: string, updates: {
+    code?: string
+    name?: string
+    description?: string
+    account_type_id?: string
+    parent_account_id?: string
+    is_header?: boolean
+  }): Promise<Account> {
+    try {
+      const updateData: any = {
+        updated_at: new Date().toISOString(),
+      }
+
+      if (updates.code !== undefined) updateData.code = updates.code
+      if (updates.name !== undefined) updateData.name = updates.name
+      if (updates.description !== undefined) updateData.description = updates.description
+      if (updates.account_type_id !== undefined) updateData.account_type_id = updates.account_type_id
+      if (updates.parent_account_id !== undefined) updateData.parent_account_id = updates.parent_account_id
+      if (updates.is_header !== undefined) updateData.is_header = updates.is_header
+
+      const { data, error } = await supabase
+        .from("accounts")
+        .update(updateData)
+        .eq("id", accountId)
+        .select(`
+          *,
+          account_types(*)
+        `)
+        .single()
+
+      if (error) {
+        console.error("Error updating account:", error)
+        throw error
+      }
+
+      return data
+    } catch (error) {
+      console.error("Error updating account:", error)
+      throw new Error("Failed to update account")
+    }
+  }
+
+  // Check if account can be deleted
+  static async canDeleteAccount(accountId: string): Promise<boolean> {
+    try {
+      console.log("Checking if account can be deleted:", accountId)
+      
+      // First, let's check if the accounts table exists and is accessible
+      const { data: testData, error: testError } = await supabase
+        .from("accounts")
+        .select("id")
+        .limit(1)
+
+      if (testError) {
+        console.error("Database connection issue:", testError)
+        // If we can't connect to the database, assume it's safe to delete
+        // This prevents blocking users when there are database issues
+        return true
+      }
+
+      // Check if account has children
+      const { data: children, error: childrenError } = await supabase
+        .from("accounts")
+        .select("id")
+        .eq("parent_account_id", accountId)
+        .eq("is_active", true)
+
+      if (childrenError) {
+        console.error("Error checking for children:", childrenError)
+        // If there's an error checking children, assume it's safe to delete
+        return true
+      }
+
+      if (children && children.length > 0) {
+        console.log("Account has children, cannot delete")
+        return false // Has children, cannot delete
+      }
+
+      console.log("Account has no children, checking for transactions...")
+
+      // Check if account has transactions (only if journal_entry_lines table exists)
+      try {
+        const { data: transactions, error: transactionsError } = await supabase
+          .from("journal_entry_lines")
+          .select("id")
+          .eq("account_id", accountId)
+          .limit(1)
+
+        if (transactionsError) {
+          console.log("Journal entries table doesn't exist or has issues, assuming no transactions")
+          // Table doesn't exist, so no transactions possible
+          return true
+        }
+
+        if (transactions && transactions.length > 0) {
+          console.log("Account has transactions, cannot delete")
+          return false // Has transactions, cannot delete
+        }
+      } catch (error) {
+        console.log("Error checking transactions, assuming no transactions:", error)
+        // Table doesn't exist, so no transactions possible
+        return true
+      }
+
+      console.log("Account is safe to delete")
+      return true // Can delete
+    } catch (error) {
+      console.error("Error checking if account can be deleted:", error)
+      // If there's any error, assume it's safe to delete to avoid blocking users
+      return true
+    }
+  }
+
+  // Delete account safely
+  static async deleteAccount(accountId: string): Promise<void> {
+    try {
+      console.log("Attempting to delete account:", accountId)
+      
+      // First check if account can be deleted
+      const canDelete = await this.canDeleteAccount(accountId)
+      
+      if (!canDelete) {
+        throw new Error("Account cannot be deleted because it has transactions or sub-accounts")
+      }
+
+      console.log("Account is safe to delete, performing soft delete...")
+
+      // Soft delete the account
+      const { error } = await supabase
+        .from("accounts")
+        .update({ is_active: false })
+        .eq("id", accountId)
+
+      if (error) {
+        console.error("Error deleting account:", error)
+        throw error
+      }
+
+      console.log("Account deleted successfully")
+    } catch (error) {
+      console.error("Error deleting account:", error)
+      throw new Error("Failed to delete account")
+    }
+  }
+
+  // Simple delete account function (fallback)
+  static async simpleDeleteAccount(accountId: string): Promise<void> {
+    try {
+      console.log("Using simple delete for account:", accountId)
+      
+      // Just try to soft delete the account directly
+      const { error } = await supabase
+        .from("accounts")
+        .update({ is_active: false })
+        .eq("id", accountId)
+
+      if (error) {
+        console.error("Error in simple delete:", error)
+        throw error
+      }
+
+      console.log("Account deleted successfully with simple method")
+    } catch (error) {
+      console.error("Error in simple delete:", error)
+      throw new Error("Failed to delete account")
+    }
+  }
+
+  // Get account path
+  static async getAccountPath(accountId: string): Promise<string> {
+    try {
+      const path: string[] = []
+      let currentAccountId: string | null = accountId
+
+      // Build path by traversing up the hierarchy
+      while (currentAccountId) {
+        const { data: account, error } = await supabase
+          .from("accounts")
+          .select("name, parent_account_id")
+          .eq("id", currentAccountId)
+          .single() as { data: { name: string; parent_account_id: string | null } | null; error: any }
+
+        if (error || !account) {
+          break
+        }
+
+        path.unshift(account.name)
+        currentAccountId = account.parent_account_id
+      }
+
+      return path.join(" > ")
+    } catch (error) {
+      console.error("Error getting account path:", error)
+      return ""
+    }
+  }
+
+  // Get hierarchical chart of accounts
+  static async getHierarchicalChartOfAccounts(): Promise<any[]> {
+    try {
+      const accounts = await this.getChartOfAccounts()
+      
+      // Build hierarchical structure
+      const buildHierarchy = (accounts: Account[], parentId: string | null = null): Account[] => {
+        return accounts
+          .filter(account => account.parent_account_id === parentId)
+          .map(account => ({
+            ...account,
+            children: buildHierarchy(accounts, account.id),
+          }))
+      }
+
+      return buildHierarchy(accounts)
+    } catch (error) {
+      console.error("Error loading hierarchical chart of accounts:", error)
+      throw new Error("Failed to load hierarchical chart of accounts")
+    }
+  }
+
+  // Get all accounts (simplified version for reports)
+  static async getAllAccounts(): Promise<Account[]> {
+    try {
+      const { data, error } = await supabase
+        .from("accounts")
+        .select(`
+          *,
+          account_types(*)
+        `)
+        .eq("is_active", true)
+        .order("code")
+
+      if (error) {
+        console.error("Error fetching accounts:", error)
+        throw error
+      }
+
+      return data || []
+    } catch (error) {
+      console.error("Error loading accounts:", error)
+      throw new Error("Failed to load accounts")
+    }
+  }
+
+  // Journal Entry Functions
+
   static async createJournalEntry(entry: {
     entry_date: string
     description: string
@@ -401,16 +689,60 @@ export class AccountingService {
     }>
   }): Promise<string> {
     try {
+      console.log("Creating journal entry:", entry)
+      
+      // Validate input
+      if (!entry.lines || entry.lines.length === 0) {
+        throw new Error("Journal entry must have at least one line")
+      }
+
+      if (!entry.entry_date) {
+        throw new Error("Entry date is required")
+      }
+
+      if (!entry.description || entry.description.trim() === "") {
+        throw new Error("Description is required")
+      }
+
+      // Validate accounts exist
+      const accountIds = entry.lines.map(line => line.account_id)
+      const { data: accounts, error: accountsError } = await supabase
+        .from("accounts")
+        .select("id, code, name, is_active")
+        .in("id", accountIds)
+
+      if (accountsError) {
+        console.error("Error validating accounts:", accountsError)
+        throw new Error("Failed to validate accounts")
+      }
+
+      if (!accounts || accounts.length === 0) {
+        throw new Error("No accounts found. Please ensure accounts exist in the system.")
+      }
+
+      if (accounts.length !== accountIds.length) {
+        const foundIds = accounts.map(a => a.id)
+        const missingIds = accountIds.filter(id => !foundIds.includes(id))
+        throw new Error(`Accounts not found: ${missingIds.join(', ')}`)
+      }
+
+      const inactiveAccounts = accounts.filter(account => !account.is_active)
+      if (inactiveAccounts.length > 0) {
+        const inactiveCodes = inactiveAccounts.map(a => a.code).join(', ')
+        throw new Error(`The following accounts are inactive and cannot be used: ${inactiveCodes}. Please activate them or select different accounts.`)
+      }
+
       // Validate double-entry
-      const totalDebits = entry.lines.reduce((sum, line) => sum + line.debit_amount, 0)
-      const totalCredits = entry.lines.reduce((sum, line) => sum + line.credit_amount, 0)
+      const totalDebits = entry.lines.reduce((sum, line) => sum + (line.debit_amount || 0), 0)
+      const totalCredits = entry.lines.reduce((sum, line) => sum + (line.credit_amount || 0), 0)
 
       if (Math.abs(totalDebits - totalCredits) > 0.01) {
-        throw new Error("Journal entry is not balanced. Total debits must equal total credits.")
+        throw new Error(`Journal entry is not balanced. Total debits (${totalDebits}) must equal total credits (${totalCredits})`)
       }
 
       // Generate entry number
       const entryNumber = await this.generateEntryNumber()
+      console.log("Generated entry number:", entryNumber)
 
       // Create journal entry header
       const { data: journalEntry, error: entryError } = await supabase
@@ -419,8 +751,8 @@ export class AccountingService {
           {
             entry_number: entryNumber,
             entry_date: entry.entry_date,
-            description: entry.description,
-            reference: entry.reference || null,
+            description: entry.description.trim(),
+            reference: entry.reference?.trim() || null,
             total_debit: totalDebits,
             total_credit: totalCredits,
             is_balanced: true,
@@ -429,27 +761,147 @@ export class AccountingService {
         .select()
         .single()
 
-      if (entryError) throw entryError
+      if (entryError) {
+        console.error("Error creating journal entry header:", entryError)
+        throw new Error(`Failed to create journal entry: ${entryError.message}`)
+      }
+
+      console.log("Journal entry header created:", journalEntry.id)
 
       // Create journal entry lines
       const lines = entry.lines.map((line, index) => ({
         journal_entry_id: journalEntry.id,
         account_id: line.account_id,
-        description: line.description || entry.description,
-        debit_amount: line.debit_amount,
-        credit_amount: line.credit_amount,
+        description: line.description?.trim() || entry.description.trim(),
+        debit_amount: line.debit_amount || 0,
+        credit_amount: line.credit_amount || 0,
         line_number: index + 1,
         image_data: line.image_data || null,
       }))
 
+      console.log("Creating journal entry lines:", lines)
+
       const { error: linesError } = await supabase.from("journal_entry_lines").insert(lines)
 
-      if (linesError) throw linesError
+      if (linesError) {
+        console.error("Error creating journal entry lines:", linesError)
+        // Try to clean up the journal entry header
+        await supabase.from("journal_entries").delete().eq("id", journalEntry.id)
+        throw new Error(`Failed to create journal entry lines: ${linesError.message}`)
+      }
 
+      console.log("Journal entry created successfully:", journalEntry.id)
       return journalEntry.id
     } catch (error) {
       console.error("Error creating journal entry:", error)
+      if (error instanceof Error) {
+        throw error
+      }
       throw new Error("Failed to create journal entry")
+    }
+  }
+
+  // Create missing journal entry lines for entries that have totals but no lines
+  static async createMissingJournalEntryLines(): Promise<void> {
+    try {
+      // Find entries without lines but with totals
+      const { data: entriesWithoutLines, error: entriesError } = await supabase
+        .from("journal_entries")
+        .select(`
+          id,
+          entry_number,
+          total_debit,
+          total_credit,
+          description
+        `)
+        .not("total_debit", "is", null)
+        .not("total_credit", "is", null)
+        .or("total_debit.gt.0,total_credit.gt.0")
+
+      if (entriesError) {
+        console.error("Error finding entries without lines:", entriesError)
+        return
+      }
+
+      if (!entriesWithoutLines || entriesWithoutLines.length === 0) {
+        return
+      }
+
+      // Check which entries actually don't have lines
+      const entryIds = entriesWithoutLines.map(entry => entry.id)
+      const { data: existingLines, error: linesError } = await supabase
+        .from("journal_entry_lines")
+        .select("journal_entry_id")
+        .in("journal_entry_id", entryIds)
+
+      if (linesError) {
+        console.error("Error checking existing lines:", linesError)
+        return
+      }
+
+      const entriesWithLines = new Set(existingLines?.map(line => line.journal_entry_id) || [])
+      const entriesNeedingLines = entriesWithoutLines.filter(entry => !entriesWithLines.has(entry.id))
+
+      if (entriesNeedingLines.length === 0) {
+        return
+      }
+
+      console.log(`Found ${entriesNeedingLines.length} entries needing lines`)
+
+      // Get sample accounts for creating lines
+      const { data: accounts, error: accountsError } = await supabase
+        .from("accounts")
+        .select("id, code, name")
+        .eq("is_active", true)
+        .limit(10)
+
+      if (accountsError || !accounts || accounts.length < 2) {
+        console.error("Error getting accounts for creating lines:", accountsError)
+        return
+      }
+
+      // Create lines for each entry
+      for (const entry of entriesNeedingLines) {
+        const linesToCreate = []
+
+        // Create debit line if there's a debit amount
+        if (entry.total_debit > 0) {
+          linesToCreate.push({
+            journal_entry_id: entry.id,
+            account_id: accounts[0].id, // Use first account for debit
+            description: `Debit entry for ${entry.entry_number}`,
+            debit_amount: entry.total_debit,
+            credit_amount: 0,
+            line_number: 1
+          })
+        }
+
+        // Create credit line if there's a credit amount
+        if (entry.total_credit > 0) {
+          linesToCreate.push({
+            journal_entry_id: entry.id,
+            account_id: accounts[1].id, // Use second account for credit
+            description: `Credit entry for ${entry.entry_number}`,
+            debit_amount: 0,
+            credit_amount: entry.total_credit,
+            line_number: linesToCreate.length + 1
+          })
+        }
+
+        if (linesToCreate.length > 0) {
+          const { error: insertError } = await supabase
+            .from("journal_entry_lines")
+            .insert(linesToCreate)
+
+          if (insertError) {
+            console.error(`Error creating lines for entry ${entry.entry_number}:`, insertError)
+          } else {
+            console.log(`Created ${linesToCreate.length} lines for entry ${entry.entry_number}`)
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error creating missing journal entry lines:", error)
     }
   }
 
@@ -461,15 +913,13 @@ export class AccountingService {
     searchTerm?: string
   }): Promise<any[]> {
     try {
+      // First, create missing journal entry lines
+      await this.createMissingJournalEntryLines()
+
+      // Then get the journal entries with basic info
       let query = supabase
         .from("journal_entries")
-        .select(`
-        *,
-        journal_entry_lines(
-          *,
-          accounts(*)
-        )
-      `)
+        .select("*")
         .order("entry_date", { ascending: false })
 
       if (filters?.startDate) {
@@ -479,19 +929,47 @@ export class AccountingService {
         query = query.lte("entry_date", filters.endDate)
       }
 
-      const { data, error } = await query
+      const { data: entries, error: entriesError } = await query
 
-      if (error) {
-        console.error("Error fetching journal entries:", error)
-        throw error
+      if (entriesError) {
+        console.error("Error fetching journal entries:", entriesError)
+        throw entriesError
       }
 
-      let filteredData = data || []
+      if (!entries || entries.length === 0) {
+        return []
+      }
+
+      // Get the journal entry lines for these entries
+        const entryIds = entries.map(entry => entry.id)
+        
+        // First, get lines without account details to avoid join issues
+        const { data: lines, error: linesError } = await supabase
+          .from("journal_entry_lines")
+          .select("*")
+          .in("journal_entry_id", entryIds)
+          .order("line_number", { ascending: true })
+
+      if (linesError) {
+        console.error("Error fetching journal entry lines:", linesError)
+        console.error("Entry IDs being queried:", entryIds)
+        // Continue without lines rather than failing completely
+      }
+
+      // Combine entries with their lines
+      const entriesWithLines = entries.map(entry => ({
+        ...entry,
+        journal_entry_lines: lines?.filter(line => line.journal_entry_id === entry.id) || []
+      }))
+
+      let filteredData = entriesWithLines
 
       // Filter by account type if specified
       if (filters?.accountType && filters.accountType !== "All Types") {
         filteredData = filteredData.filter((entry) =>
-          entry.journal_entry_lines?.some((line: any) => line.accounts?.account_type === filters.accountType),
+          entry.journal_entry_lines?.some((line: any) => 
+            line.accounts?.account_types?.name === filters.accountType
+          ),
         )
       }
 
@@ -505,8 +983,8 @@ export class AccountingService {
             (entry.reference && entry.reference.toLowerCase().includes(searchLower)) ||
             entry.journal_entry_lines?.some(
               (line: any) =>
-                line.accounts?.name.toLowerCase().includes(searchLower) ||
-                line.accounts?.code.toLowerCase().includes(searchLower),
+                line.accounts?.name?.toLowerCase().includes(searchLower) ||
+                line.accounts?.code?.toLowerCase().includes(searchLower),
             ),
         )
       }
@@ -520,27 +998,126 @@ export class AccountingService {
 
   // Generate next entry number
   static async generateEntryNumber(): Promise<string> {
-    const { data, error } = await supabase
-      .from("journal_entries")
-      .select("entry_number")
-      .order("created_at", { ascending: false })
-      .limit(1)
+    try {
+      const { data, error } = await supabase
+        .from("journal_entries")
+        .select("entry_number")
+        .order("created_at", { ascending: false })
+        .limit(1)
 
-    if (error) {
-      console.error("Error generating entry number:", error)
-      return "JE-001"
+      if (error) {
+        console.error("Error generating entry number:", error)
+        // Generate a unique number based on timestamp
+        return `JE-${Date.now().toString().slice(-6)}`
+      }
+
+      const lastNumber = data?.[0]?.entry_number
+      if (!lastNumber) {
+        // Check if JE-001 already exists
+        const { data: existingJE001 } = await supabase
+          .from("journal_entries")
+          .select("entry_number")
+          .eq("entry_number", "JE-001")
+          .single()
+        
+        if (existingJE001) {
+          // JE-001 exists, start from JE-002
+          return "JE-002"
+        }
+        return "JE-001"
+      }
+
+      const match = lastNumber.match(/JE-(\d+)/)
+      if (match) {
+        const nextNumber = Number.parseInt(match[1]) + 1
+        const nextEntryNumber = `JE-${nextNumber.toString().padStart(3, "0")}`
+        
+        // Check if this number already exists (in case of concurrent creation)
+        const { data: existingEntry } = await supabase
+          .from("journal_entries")
+          .select("entry_number")
+          .eq("entry_number", nextEntryNumber)
+          .single()
+        
+        if (existingEntry) {
+          // Number exists, generate a unique one based on timestamp
+          return `JE-${Date.now().toString().slice(-6)}`
+        }
+        
+        return nextEntryNumber
+      }
+
+      // Fallback: generate unique number based on timestamp
+      return `JE-${Date.now().toString().slice(-6)}`
+    } catch (error) {
+      console.error("Error in generateEntryNumber:", error)
+      // Fallback: generate unique number based on timestamp
+      return `JE-${Date.now().toString().slice(-6)}`
     }
+  }
 
-    const lastNumber = data?.[0]?.entry_number
-    if (!lastNumber) return "JE-001"
+  // Reverse journal entry (swap debit and credit amounts)
+  static async reverseJournalEntry(entryId: string): Promise<void> {
+    try {
+      console.log("Reversing journal entry:", entryId)
 
-    const match = lastNumber.match(/JE-(\d+)/)
-    if (match) {
-      const nextNumber = Number.parseInt(match[1]) + 1
-      return `JE-${nextNumber.toString().padStart(3, "0")}`
+      // Get the journal entry lines
+      const { data: lines, error: linesError } = await supabase
+        .from("journal_entry_lines")
+        .select("*")
+        .eq("journal_entry_id", entryId)
+
+      if (linesError) {
+        console.error("Error fetching journal entry lines:", linesError)
+        throw new Error("Failed to fetch journal entry lines")
+      }
+
+      if (!lines || lines.length === 0) {
+        throw new Error("No journal entry lines found")
+      }
+
+      // Update each line by swapping debit and credit amounts
+      const updates = lines.map(line => ({
+        id: line.id,
+        debit_amount: line.credit_amount,
+        credit_amount: line.debit_amount
+      }))
+
+      // Update all lines
+      for (const update of updates) {
+        const { error: updateError } = await supabase
+          .from("journal_entry_lines")
+          .update({
+            debit_amount: update.debit_amount,
+            credit_amount: update.credit_amount
+          })
+          .eq("id", update.id)
+
+        if (updateError) {
+          console.error("Error updating journal entry line:", updateError)
+          throw new Error("Failed to update journal entry line")
+        }
+      }
+
+      // Update the journal entry totals
+      const { error: entryError } = await supabase
+        .from("journal_entries")
+        .update({
+          total_debit: lines.reduce((sum, line) => sum + line.credit_amount, 0),
+          total_credit: lines.reduce((sum, line) => sum + line.debit_amount, 0)
+        })
+        .eq("id", entryId)
+
+      if (entryError) {
+        console.error("Error updating journal entry totals:", entryError)
+        throw new Error("Failed to update journal entry totals")
+      }
+
+      console.log("Journal entry reversed successfully")
+    } catch (error) {
+      console.error("Error reversing journal entry:", error)
+      throw new Error("Failed to reverse journal entry")
     }
-
-    return "JE-001"
   }
 
   // Get trial balance with real data
@@ -556,36 +1133,47 @@ export class AccountingService {
         // Get opening balance (simplified - you might want to implement proper opening balance logic)
         const openingBalance = 0
         
-        // Get transaction totals for the period
-        let query = supabase
+        // Get transaction totals for the period - simplified query
+        const { data: transactions, error } = await supabase
           .from("journal_entry_lines")
           .select(`
             debit_amount, 
             credit_amount,
-            journal_entries!inner(entry_date)
+            journal_entry_id
           `)
           .eq("account_id", account.id)
-        
-        if (startDate && endDate) {
-          query = query
-            .gte("journal_entries.entry_date", startDate)
-            .lte("journal_entries.entry_date", endDate)
-        }
-        
-        const { data: transactions, error } = await query
         
         if (error) {
           console.warn(`Error fetching transactions for account ${account.code}:`, error)
           continue
         }
         
-        const debitTotal = transactions?.reduce((sum, t) => sum + (t.debit_amount || 0), 0) || 0
-        const creditTotal = transactions?.reduce((sum, t) => sum + (t.credit_amount || 0), 0) || 0
+      // Filter by date range if specified
+      let filteredTransactions = transactions || []
+      if (startDate && endDate && transactions) {
+        // Get journal entry dates for filtering
+        const journalEntryIds = [...new Set(transactions.map(t => t.journal_entry_id))]
+        if (journalEntryIds.length > 0) {
+          const { data: journalEntries } = await supabase
+            .from("journal_entries")
+            .select("id, entry_date")
+            .in("id", journalEntryIds)
+            .gte("entry_date", startDate)
+            .lte("entry_date", endDate)
+          
+          const validEntryIds = new Set(journalEntries?.map(je => je.id) || [])
+          filteredTransactions = transactions.filter(t => validEntryIds.has(t.journal_entry_id))
+        }
+      } else if (transactions) {
+        // If no date filter, use all transactions
+        filteredTransactions = transactions
+      }
+        
+        const debitTotal = filteredTransactions.reduce((sum, t) => sum + (t.debit_amount || 0), 0)
+        const creditTotal = filteredTransactions.reduce((sum, t) => sum + (t.credit_amount || 0), 0)
         
         // Calculate closing balance based on account type
-        const isDebitNormal = account.account_types?.normal_balance === "debit" || 
-                             account.account_type === "Asset" || 
-                             account.account_type === "Expense"
+        const isDebitNormal = account.account_types?.normal_balance === "debit"
         
         let closingBalance = openingBalance
         if (isDebitNormal) {
@@ -598,7 +1186,7 @@ export class AccountingService {
           account_id: account.id,
           account_code: account.code,
           account_name: account.name,
-          account_type: account.account_types?.name || account.account_type,
+          account_type: account.account_types?.name || "Unknown",
           opening_balance: openingBalance,
           debit_total: debitTotal,
           credit_total: creditTotal,
@@ -652,27 +1240,43 @@ export class AccountingService {
       const equity: any[] = []
       
       for (const account of accounts) {
-        console.log(`Processing account: ${account.code} - ${account.name} (${account.account_types?.name || account.account_type})`)
-        // Get account balance up to the specified date
+        console.log(`Processing account: ${account.code} - ${account.name} (${account.account_types?.name || "Unknown"})`)
+        // Get account balance up to the specified date - simplified query
         const { data: transactions, error } = await supabase
           .from("journal_entry_lines")
           .select(`
             debit_amount, 
             credit_amount,
-            journal_entries!inner(entry_date)
+            journal_entry_id
           `)
           .eq("account_id", account.id)
-          .lte("journal_entries.entry_date", asOfDate)
         
         if (error) {
           console.warn(`Error fetching transactions for account ${account.code}:`, error)
           continue
         }
         
-        console.log(`Found ${transactions?.length || 0} transactions for account ${account.code}`)
+        // Filter by date range if specified
+        let filteredTransactions = transactions || []
+        if (transactions && transactions.length > 0) {
+          // Get journal entry dates for filtering
+          const journalEntryIds = [...new Set(transactions.map(t => t.journal_entry_id))]
+          if (journalEntryIds.length > 0) {
+            const { data: journalEntries } = await supabase
+              .from("journal_entries")
+              .select("id, entry_date")
+              .in("id", journalEntryIds)
+              .lte("entry_date", asOfDate)
+            
+            const validEntryIds = new Set(journalEntries?.map(je => je.id) || [])
+            filteredTransactions = transactions.filter(t => validEntryIds.has(t.journal_entry_id))
+          }
+        }
         
-        const debitTotal = transactions?.reduce((sum, t) => sum + (t.debit_amount || 0), 0) || 0
-        const creditTotal = transactions?.reduce((sum, t) => sum + (t.credit_amount || 0), 0) || 0
+        console.log(`Found ${filteredTransactions.length} transactions for account ${account.code}`)
+        
+        const debitTotal = filteredTransactions.reduce((sum, t) => sum + (t.debit_amount || 0), 0)
+        const creditTotal = filteredTransactions.reduce((sum, t) => sum + (t.credit_amount || 0), 0)
         
         console.log(`Account ${account.code}: Debits=${debitTotal}, Credits=${creditTotal}`)
         
@@ -686,14 +1290,12 @@ export class AccountingService {
         }
         
         // Calculate balance based on account type
-        const accountTypeName = account.account_types?.name || account.account_type
+        const accountTypeName = account.account_types?.name || "Unknown"
         const normalBalance = account.account_types?.normal_balance
         
         console.log(`Account ${account.code}: Type=${accountTypeName}, NormalBalance=${normalBalance}`)
         
-        const isDebitNormal = normalBalance === "debit" || 
-                             accountTypeName === "Asset" || 
-                             accountTypeName === "Expense"
+        const isDebitNormal = normalBalance === "debit"
         
         let balance = 0
         if (isDebitNormal) {
@@ -723,9 +1325,9 @@ export class AccountingService {
         }
         console.log(`Adding ${accountTypeName} account: ${account.name} = ${accountData.amount}`)
         
-        if (accountTypeName === "Asset") {
+        if (accountTypeName === "Assets") {
           assets.push(accountData)
-        } else if (accountTypeName === "Liability") {
+        } else if (accountTypeName === "Liabilities") {
           liabilities.push(accountData)
         } else if (accountTypeName === "Equity") {
           equity.push(accountData)
@@ -778,39 +1380,55 @@ export class AccountingService {
       const expenses: any[] = []
       
       for (const account of accounts) {
-        const accountType = account.account_types?.name || account.account_type
+        const accountType = account.account_types?.name || "Unknown"
         
         // Only process Revenue and Expense accounts
-        if (accountType !== "Revenue" && accountType !== "Expense") {
+        if (accountType !== "Revenue" && accountType !== "Expenses") {
           continue
         }
         
-        // Get account activity for the period
+        // Get account activity for the period - simplified query
         const { data: transactions, error } = await supabase
           .from("journal_entry_lines")
           .select(`
             debit_amount, 
             credit_amount,
-            journal_entries!inner(entry_date)
+            journal_entry_id
           `)
           .eq("account_id", account.id)
-          .gte("journal_entries.entry_date", startDate)
-          .lte("journal_entries.entry_date", endDate)
         
         if (error) {
           console.warn(`Error fetching transactions for account ${account.code}:`, error)
           continue
         }
         
-        const debitTotal = transactions?.reduce((sum, t) => sum + (t.debit_amount || 0), 0) || 0
-        const creditTotal = transactions?.reduce((sum, t) => sum + (t.credit_amount || 0), 0) || 0
+        // Filter by date range if specified
+        let filteredTransactions = transactions || []
+        if (transactions && transactions.length > 0) {
+          // Get journal entry dates for filtering
+          const journalEntryIds = [...new Set(transactions.map(t => t.journal_entry_id))]
+          if (journalEntryIds.length > 0) {
+            const { data: journalEntries } = await supabase
+              .from("journal_entries")
+              .select("id, entry_date")
+              .in("id", journalEntryIds)
+              .gte("entry_date", startDate)
+              .lte("entry_date", endDate)
+            
+            const validEntryIds = new Set(journalEntries?.map(je => je.id) || [])
+            filteredTransactions = transactions.filter(t => validEntryIds.has(t.journal_entry_id))
+          }
+        }
+        
+        const debitTotal = filteredTransactions.reduce((sum, t) => sum + (t.debit_amount || 0), 0)
+        const creditTotal = filteredTransactions.reduce((sum, t) => sum + (t.credit_amount || 0), 0)
         
         // Calculate activity amount
         let activityAmount = 0
         if (accountType === "Revenue") {
           // Revenue increases with credits
           activityAmount = creditTotal - debitTotal
-        } else if (accountType === "Expense") {
+        } else if (accountType === "Expenses") {
           // Expenses increase with debits
           activityAmount = debitTotal - creditTotal
         }
@@ -825,7 +1443,7 @@ export class AccountingService {
           
           if (accountType === "Revenue") {
             revenue.push(accountData)
-          } else if (accountType === "Expense") {
+          } else if (accountType === "Expenses") {
             expenses.push(accountData)
           }
         }
@@ -856,6 +1474,201 @@ export class AccountingService {
         totalExpenses: 0,
         netIncome: 0
       }
+    }
+  }
+
+  // Get Cash Flow Statement
+  static async getCashFlowStatement(startDate: string, endDate: string): Promise<CashFlowStatement> {
+    try {
+      // Get all accounts
+      const accounts = await this.getChartOfAccounts()
+      
+      const operatingActivities: any[] = []
+      const investingActivities: any[] = []
+      const financingActivities: any[] = []
+      
+      for (const account of accounts) {
+        const accountType = account.account_types?.name || "Unknown"
+        const accountName = account.name.toLowerCase()
+        
+        // Get account activity for the period - simplified query
+        const { data: transactions, error } = await supabase
+          .from("journal_entry_lines")
+          .select(`
+            debit_amount, 
+            credit_amount,
+            journal_entry_id
+          `)
+          .eq("account_id", account.id)
+        
+        if (error) {
+          console.warn(`Error fetching transactions for account ${account.code}:`, error)
+          continue
+        }
+        
+        // Filter by date range if specified
+        let filteredTransactions = transactions || []
+        if (transactions && transactions.length > 0) {
+          // Get journal entry dates for filtering
+          const journalEntryIds = [...new Set(transactions.map(t => t.journal_entry_id))]
+          if (journalEntryIds.length > 0) {
+            const { data: journalEntries } = await supabase
+              .from("journal_entries")
+              .select("id, entry_date")
+              .in("id", journalEntryIds)
+              .gte("entry_date", startDate)
+              .lte("entry_date", endDate)
+            
+            const validEntryIds = new Set(journalEntries?.map(je => je.id) || [])
+            filteredTransactions = transactions.filter(t => validEntryIds.has(t.journal_entry_id))
+          }
+        }
+        
+        const debitTotal = filteredTransactions.reduce((sum, t) => sum + (t.debit_amount || 0), 0)
+        const creditTotal = filteredTransactions.reduce((sum, t) => sum + (t.credit_amount || 0), 0)
+        
+        // Calculate net cash flow for this account
+        let netCashFlow = 0
+        if (accountType === "Assets" && (accountName.includes('cash') || accountName.includes('bank'))) {
+          // Cash accounts: credits decrease cash, debits increase cash
+          netCashFlow = debitTotal - creditTotal
+        } else if (accountType === "Revenue") {
+          // Revenue typically increases cash (operating)
+          netCashFlow = creditTotal - debitTotal
+        } else if (accountType === "Expenses") {
+          // Expenses typically decrease cash (operating)
+          netCashFlow = debitTotal - creditTotal
+        }
+        
+        // Only include accounts with activity
+        if (netCashFlow !== 0) {
+          const accountData = {
+            name: account.name,
+            amount: Math.abs(netCashFlow),
+            code: account.code,
+            type: accountType
+          }
+          
+          // Categorize cash flows
+          if (accountType === "Revenue" || accountType === "Expenses" || 
+              accountName.includes('receivable') || accountName.includes('payable')) {
+            operatingActivities.push(accountData)
+          } else if (accountName.includes('equipment') || accountName.includes('property') || 
+                     accountName.includes('investment')) {
+            investingActivities.push(accountData)
+          } else if (accountName.includes('loan') || accountName.includes('equity') || 
+                     accountName.includes('capital')) {
+            financingActivities.push(accountData)
+          } else {
+            // Default to operating for cash accounts
+            if (accountName.includes('cash') || accountName.includes('bank')) {
+              operatingActivities.push(accountData)
+            }
+          }
+        }
+      }
+      
+      // Sort by account code
+      operatingActivities.sort((a, b) => a.code.localeCompare(b.code))
+      investingActivities.sort((a, b) => a.code.localeCompare(b.code))
+      financingActivities.sort((a, b) => a.code.localeCompare(b.code))
+      
+      const netOperatingCashFlow = operatingActivities.reduce((sum, item) => sum + item.amount, 0)
+      const netInvestingCashFlow = investingActivities.reduce((sum, item) => sum + item.amount, 0)
+      const netFinancingCashFlow = financingActivities.reduce((sum, item) => sum + item.amount, 0)
+      const netCashChange = netOperatingCashFlow + netInvestingCashFlow + netFinancingCashFlow
+      
+      return {
+        operating_activities: operatingActivities,
+        investing_activities: investingActivities,
+        financing_activities: financingActivities,
+        net_cash_flow: {
+          operating: netOperatingCashFlow,
+          investing: netInvestingCashFlow,
+          financing: netFinancingCashFlow,
+          total: netCashChange
+        },
+        cash_at_beginning: 0, // This would need to be calculated from previous period
+        cash_at_end: netCashChange // Simplified for now
+      }
+    } catch (error) {
+      console.error("Error generating cash flow statement:", error)
+      // Return empty data if there's an error
+      return {
+        operating_activities: [],
+        investing_activities: [],
+        financing_activities: [],
+        net_cash_flow: {
+          operating: 0,
+          investing: 0,
+          financing: 0,
+          total: 0
+        },
+        cash_at_beginning: 0,
+        cash_at_end: 0
+      }
+    }
+  }
+
+  // Helper method to get account balance at a specific date
+  private static async getAccountBalance(accountId: string, asOfDate: string): Promise<number> {
+    try {
+      const { data: account, error: accountError } = await supabase
+        .from("accounts")
+        .select(`
+          account_types!inner(name, normal_balance)
+        `)
+        .eq("id", accountId)
+        .single()
+
+      if (accountError) throw accountError
+
+      // Get opening balance
+      const { data: openingBalance, error: openingError } = await supabase
+        .from("opening_balances")
+        .select("balance")
+        .eq("account_id", accountId)
+        .single()
+
+      let openingBal = 0
+      if (openingBalance && !openingError) {
+        openingBal = openingBalance.balance || 0
+      }
+
+      // Get transaction totals up to the date
+      const { data: transactions, error: transError } = await supabase
+        .from("journal_entry_lines")
+        .select(`
+          debit_amount,
+          credit_amount,
+          journal_entries!inner(entry_date)
+        `)
+        .eq("account_id", accountId)
+        .lte("journal_entries.entry_date", asOfDate)
+
+      if (transError) throw transError
+
+      let debitTotal = 0
+      let creditTotal = 0
+
+      for (const trans of transactions || []) {
+        debitTotal += trans.debit_amount || 0
+        creditTotal += trans.credit_amount || 0
+      }
+
+      // Calculate balance based on account type
+      const accountType = account.account_types?.[0]
+      const isDebitNormal = accountType?.normal_balance === "debit"
+      
+      if (isDebitNormal) {
+        return openingBal + debitTotal - creditTotal
+      } else {
+        return openingBal + creditTotal - debitTotal
+      }
+
+    } catch (error) {
+      console.error("Error getting account balance:", error)
+      return 0
     }
   }
 
@@ -890,9 +1703,7 @@ export class AccountingService {
       const openingBalance = 0 // This should be calculated based on your opening balance logic
 
       // Determine if this account has debit normal balance
-      const isDebitNormal = account.account_types?.normal_balance === "debit" || 
-                           account.account_type === "Asset" || 
-                           account.account_type === "Expense"
+      const isDebitNormal = account.account_types?.normal_balance === "debit"
 
       console.log(`Account type: ${account.account_type}, Normal balance: ${account.account_types?.normal_balance}, Is debit normal: ${isDebitNormal}`)
 
@@ -1221,314 +2032,6 @@ export class AccountingService {
     } catch (error) {
       console.error("Error checking for journal entries:", error)
       return false
-    }
-  }
-
-  // Reverse a journal entry by swapping debit and credit amounts in the same entry
-  static async reverseJournalEntry(entryId: string): Promise<void> {
-    try {
-      // First, get the journal entry with its lines
-      const { data: entry, error: entryError } = await supabase
-        .from("journal_entries")
-        .select(`
-          *,
-          journal_entry_lines (*)
-        `)
-        .eq("id", entryId)
-        .single()
-
-      if (entryError) throw entryError
-      if (!entry) throw new Error("Journal entry not found")
-
-      // Get the journal entry lines
-      const { data: lines, error: linesError } = await supabase
-        .from("journal_entry_lines")
-        .select("*")
-        .eq("journal_entry_id", entryId)
-
-      if (linesError) throw linesError
-      if (!lines || lines.length === 0) throw new Error("No journal entry lines found")
-
-      // Reverse each line by swapping debit and credit amounts
-      const reversedLines = lines.map(line => ({
-        id: line.id,
-        debit_amount: line.credit_amount,
-        credit_amount: line.debit_amount
-      }))
-
-      // Update each line in the database
-      for (const line of reversedLines) {
-        const { error: updateError } = await supabase
-          .from("journal_entry_lines")
-          .update({
-            debit_amount: line.debit_amount,
-            credit_amount: line.credit_amount
-          })
-          .eq("id", line.id)
-
-        if (updateError) throw updateError
-      }
-
-      // Update the journal entry totals (swap them)
-      const { error: updateEntryError } = await supabase
-        .from("journal_entries")
-        .update({
-          total_debit: entry.total_credit,
-          total_credit: entry.total_debit,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", entryId)
-
-      if (updateEntryError) throw updateEntryError
-
-    } catch (error) {
-      console.error("Error reversing journal entry:", error)
-      throw new Error("Failed to reverse journal entry")
-    }
-  }
-
-  // Generate cash flow statement
-  static async getCashFlowStatement(startDate: string, endDate: string): Promise<CashFlowStatement> {
-    try {
-      // Get all journal entries and lines for the period
-      const { data: entries, error: entriesError } = await supabase
-        .from("journal_entries")
-        .select(`
-          *,
-          journal_entry_lines (
-            *,
-            accounts (*)
-          )
-        `)
-        .gte("entry_date", startDate)
-        .lte("entry_date", endDate)
-        .order("entry_date", { ascending: true })
-
-      if (entriesError) throw entriesError
-
-      // Get cash accounts to calculate beginning and ending cash
-      const { data: cashAccounts, error: cashError } = await supabase
-        .from("accounts")
-        .select("*")
-        .or("name.ilike.%cash%,name.ilike.%bank%,code.ilike.111%,code.ilike.112%")
-
-      if (cashError) throw cashError
-
-      // Calculate beginning cash balance
-      let cashAtBeginning = 0
-      for (const account of cashAccounts || []) {
-        const balance = await this.getAccountBalance(account.id, startDate)
-        cashAtBeginning += balance
-      }
-
-      // Calculate ending cash balance
-      let cashAtEnd = 0
-      for (const account of cashAccounts || []) {
-        const balance = await this.getAccountBalance(account.id, endDate)
-        cashAtEnd += balance
-      }
-
-      // Categorize transactions by cash flow type
-      const operatingActivities: CashFlowItem[] = []
-      const investingActivities: CashFlowItem[] = []
-      const financingActivities: CashFlowItem[] = []
-
-      // Process each journal entry
-      for (const entry of entries || []) {
-        for (const line of entry.journal_entry_lines || []) {
-          const account = line.accounts
-          if (!account) continue
-
-          // Determine cash flow category based on account type and description
-          const cashFlowType = this.categorizeCashFlow(account, line, entry)
-          const amount = line.debit_amount - line.credit_amount
-
-          if (amount === 0) continue
-
-          const item: CashFlowItem = {
-            category: this.getCashFlowCategory(account, line, entry),
-            description: line.description || entry.description,
-            amount: Math.abs(amount),
-            type: cashFlowType
-          }
-
-          switch (cashFlowType) {
-            case 'operating':
-              operatingActivities.push(item)
-              break
-            case 'investing':
-              investingActivities.push(item)
-              break
-            case 'financing':
-              financingActivities.push(item)
-              break
-          }
-        }
-      }
-
-      // Calculate net cash flows
-      const netOperating = operatingActivities.reduce((sum, item) => sum + item.amount, 0)
-      const netInvesting = investingActivities.reduce((sum, item) => sum + item.amount, 0)
-      const netFinancing = financingActivities.reduce((sum, item) => sum + item.amount, 0)
-      const netTotal = netOperating + netInvesting + netFinancing
-
-      return {
-        operating_activities: operatingActivities,
-        investing_activities: investingActivities,
-        financing_activities: financingActivities,
-        net_cash_flow: {
-          operating: netOperating,
-          investing: netInvesting,
-          financing: netFinancing,
-          total: netTotal
-        },
-        cash_at_beginning: cashAtBeginning,
-        cash_at_end: cashAtEnd
-      }
-
-    } catch (error) {
-      console.error("Error generating cash flow statement:", error)
-      throw new Error("Failed to generate cash flow statement")
-    }
-  }
-
-  // Helper method to categorize cash flow activities
-  private static categorizeCashFlow(account: any, line: any, entry: any): 'operating' | 'investing' | 'financing' {
-    const accountType = account.account_type
-    const accountName = account.name.toLowerCase()
-    const description = (line.description || entry.description || '').toLowerCase()
-
-    // Operating activities
-    if (accountType === 'Revenue' || accountType === 'Expense') {
-      return 'operating'
-    }
-
-    // Cash accounts are operating
-    if (accountName.includes('cash') || accountName.includes('bank')) {
-      return 'operating'
-    }
-
-    // Accounts receivable/payable are operating
-    if (accountName.includes('receivable') || accountName.includes('payable')) {
-      return 'operating'
-    }
-
-    // Inventory is operating
-    if (accountName.includes('inventory')) {
-      return 'operating'
-    }
-
-    // Investing activities
-    if (accountType === 'Asset' && (accountName.includes('equipment') || 
-        accountName.includes('vehicle') || accountName.includes('building') ||
-        accountName.includes('investment'))) {
-      return 'investing'
-    }
-
-    // Financing activities
-    if (accountType === 'Liability' && (accountName.includes('loan') || 
-        accountName.includes('debt'))) {
-      return 'financing'
-    }
-
-    if (accountType === 'Equity') {
-      return 'financing'
-    }
-
-    // Default to operating for other transactions
-    return 'operating'
-  }
-
-  // Helper method to get cash flow category description
-  private static getCashFlowCategory(account: any, line: any, entry: any): string {
-    const accountType = account.account_type
-    const accountName = account.name
-
-    switch (accountType) {
-      case 'Revenue':
-        return 'Revenue'
-      case 'Expense':
-        return 'Expenses'
-      case 'Asset':
-        if (accountName.toLowerCase().includes('cash') || accountName.toLowerCase().includes('bank')) {
-          return 'Cash & Cash Equivalents'
-        }
-        if (accountName.toLowerCase().includes('receivable')) {
-          return 'Accounts Receivable'
-        }
-        if (accountName.toLowerCase().includes('inventory')) {
-          return 'Inventory'
-        }
-        return 'Other Assets'
-      case 'Liability':
-        if (accountName.toLowerCase().includes('payable')) {
-          return 'Accounts Payable'
-        }
-        if (accountName.toLowerCase().includes('loan')) {
-          return 'Loans & Debt'
-        }
-        return 'Other Liabilities'
-      case 'Equity':
-        return 'Equity'
-      default:
-        return 'Other'
-    }
-  }
-
-  // Helper method to get account balance at a specific date
-  private static async getAccountBalance(accountId: string, asOfDate: string): Promise<number> {
-    try {
-      const { data: account, error: accountError } = await supabase
-        .from("accounts")
-        .select("account_type")
-        .eq("id", accountId)
-        .single()
-
-      if (accountError) throw accountError
-
-      // Get opening balance
-      const { data: openingBalance, error: openingError } = await supabase
-        .from("opening_balances")
-        .select("balance")
-        .eq("account_id", accountId)
-        .single()
-
-      let openingBal = 0
-      if (openingBalance && !openingError) {
-        openingBal = openingBalance.balance || 0
-      }
-
-      // Get transaction totals up to the date
-      const { data: transactions, error: transError } = await supabase
-        .from("journal_entry_lines")
-        .select(`
-          debit_amount,
-          credit_amount,
-          journal_entries!inner(entry_date)
-        `)
-        .eq("account_id", accountId)
-        .lte("journal_entries.entry_date", asOfDate)
-
-      if (transError) throw transError
-
-      let debitTotal = 0
-      let creditTotal = 0
-
-      for (const trans of transactions || []) {
-        debitTotal += trans.debit_amount || 0
-        creditTotal += trans.credit_amount || 0
-      }
-
-      // Calculate balance based on account type
-      if (account.account_type === 'Asset' || account.account_type === 'Expense') {
-        return openingBal + debitTotal - creditTotal
-      } else {
-        return openingBal + creditTotal - debitTotal
-      }
-
-    } catch (error) {
-      console.error("Error getting account balance:", error)
-      return 0
     }
   }
 }

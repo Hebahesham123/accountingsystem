@@ -46,6 +46,7 @@ export type JournalEntry = {
   created_by?: string
   created_at: string
   updated_at: string
+  journal_entry_lines?: JournalEntryLine[]
 }
 
 export type JournalEntryLine = {
@@ -59,6 +60,14 @@ export type JournalEntryLine = {
   created_at: string
   image_data?: string
   account?: Account
+  accounts?: {
+    id: string
+    code: string
+    name: string
+    account_types: {
+      name: string
+    }
+  }
 }
 
 export type AccountingPeriod = {

@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useState, useEffect } from "react"
-import { Plus, Edit, Trash2, ChevronRight, ChevronDown, AlertCircle, FileText } from "lucide-react"
+import { Plus, Edit, Trash2, ChevronRight, ChevronDown, AlertCircle, FileText, FolderOpen, Folder } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -14,6 +14,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -21,6 +32,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Switch } from "@/components/ui/switch"
 import { type Account, type AccountType, AccountingService } from "@/lib/accounting-utils"
 import { useToast } from "@/hooks/use-toast"
 
@@ -34,15 +46,15 @@ export default function ChartOfAccounts() {
   const [editingAccountType, setEditingAccountType] = useState<AccountType | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [showMigrationWarning, setShowMigrationWarning] = useState(false)
   const { toast } = useToast()
 
   const [accountFormData, setAccountFormData] = useState({
     code: "",
     name: "",
+    description: "",
     account_type_id: "",
     parent_account_id: "",
-    description: "",
+    is_header: false,
   })
 
   const [accountTypeFormData, setAccountTypeFormData] = useState({
@@ -64,12 +76,8 @@ export default function ChartOfAccounts() {
       ])
       setAccounts(accountsData)
       setAccountTypes(accountTypesData)
-
-      // Check if we're using fallback data (indicates migration needed)
-      if (accountTypesData.length === 5 && accountTypesData.every((type) => type.is_system)) {
-        setShowMigrationWarning(true)
-      }
     } catch (error) {
+      console.error("Error loading data:", error)
       toast({
         title: "Error",
         description: "Failed to load data",
@@ -80,11 +88,36 @@ export default function ChartOfAccounts() {
     }
   }
 
-  const handleAccountInputChange = (field: string, value: string) => {
-    setAccountFormData((prev) => ({
-      ...prev,
+  const handleAccountInputChange = async (field: string, value: string | boolean) => {
+    const newData = {
+      ...accountFormData,
       [field]: value,
-    }))
+    }
+    
+    setAccountFormData(newData)
+    
+    // Auto-generate code when account type or parent account changes
+    if (field === "account_type_id" || field === "parent_account_id") {
+      try {
+        const generatedCode = await AccountingService.generateAccountCode(
+          field === "account_type_id" ? value as string : newData.account_type_id,
+          field === "parent_account_id" ? (value === "none" ? undefined : value as string) : newData.parent_account_id
+        )
+        
+        setAccountFormData((prev) => ({
+          ...prev,
+          code: generatedCode,
+        }))
+      } catch (error) {
+        console.error("Error generating account code:", error)
+        // Don't show error to user, just use a fallback
+        const fallbackCode = `${Date.now().toString().slice(-4)}`
+        setAccountFormData((prev) => ({
+          ...prev,
+          code: fallbackCode,
+        }))
+      }
+    }
   }
 
   const handleAccountTypeInputChange = (field: string, value: string) => {
@@ -97,10 +130,10 @@ export default function ChartOfAccounts() {
   const handleAccountSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!accountFormData.code.trim() || !accountFormData.name.trim() || !accountFormData.account_type_id) {
+    if (!accountFormData.name.trim() || !accountFormData.account_type_id) {
       toast({
         title: "Missing Information",
-        description: "Account code, name, and type are required",
+        description: "Account name and type are required",
         variant: "destructive",
       })
       return
@@ -110,34 +143,88 @@ export default function ChartOfAccounts() {
       setSaving(true)
 
       if (editingAccount) {
-        // Update existing account - would need update method
+        // Update existing account
+        const updateData = {
+          code: accountFormData.code.trim() || undefined,
+          name: accountFormData.name.trim(),
+          description: accountFormData.description.trim() || undefined,
+          account_type_id: accountFormData.account_type_id,
+          parent_account_id: accountFormData.parent_account_id === "none" ? undefined : accountFormData.parent_account_id,
+          is_header: accountFormData.is_header,
+        }
+        
+        await AccountingService.updateAccount(editingAccount.id, updateData)
+
         toast({
-          title: "Info",
-          description: "Account update functionality not implemented yet",
+          title: "Success",
+          description: "Account updated successfully",
         })
       } else {
         // Create new account
-        await AccountingService.createAccount({
-          code: accountFormData.code.trim(),
+        const accountData = {
+          code: accountFormData.code.trim() || undefined,
           name: accountFormData.name.trim(),
-          account_type_id: accountFormData.account_type_id,
-          parent_account_id: accountFormData.parent_account_id || undefined,
           description: accountFormData.description.trim() || undefined,
-        })
+          account_type_id: accountFormData.account_type_id,
+          parent_account_id: accountFormData.parent_account_id === "none" ? undefined : accountFormData.parent_account_id,
+          is_header: accountFormData.is_header,
+        }
+        
+        await AccountingService.createAccount(accountData)
 
         toast({
           title: "Success",
           description: "Account created successfully",
         })
-
-        setIsAccountDialogOpen(false)
-        resetAccountForm()
-        loadData()
       }
+
+      setIsAccountDialogOpen(false)
+      resetAccountForm()
+      loadData()
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to save account",
+        description: error instanceof Error ? error.message : "Failed to save account",
+        variant: "destructive",
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDeleteAccount = async (account: Account) => {
+    try {
+      setSaving(true)
+      
+      // Try the normal deletion process first
+      try {
+        const canDelete = await AccountingService.canDeleteAccount(account.id)
+        
+        if (!canDelete) {
+          toast({
+            title: "Cannot Delete Account",
+            description: "This account has transactions or sub-accounts and cannot be deleted",
+            variant: "destructive",
+          })
+          return
+        }
+
+        await AccountingService.deleteAccount(account.id)
+      } catch (error) {
+        console.log("Normal delete failed, trying simple delete:", error)
+        // If normal delete fails, try simple delete
+        await AccountingService.simpleDeleteAccount(account.id)
+      }
+
+      toast({
+        title: "Success",
+        description: "Account deleted successfully",
+      })
+      loadData()
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete account",
         variant: "destructive",
       })
     } finally {
@@ -161,7 +248,6 @@ export default function ChartOfAccounts() {
       setSaving(true)
 
       if (editingAccountType) {
-        // Update existing account type
         await AccountingService.updateAccountType(editingAccountType.id, {
           name: accountTypeFormData.name.trim(),
           description: accountTypeFormData.description.trim() || undefined,
@@ -173,7 +259,6 @@ export default function ChartOfAccounts() {
           description: "Account type updated successfully",
         })
       } else {
-        // Create new account type
         await AccountingService.createAccountType({
           name: accountTypeFormData.name.trim(),
           description: accountTypeFormData.description.trim() || undefined,
@@ -204,6 +289,7 @@ export default function ChartOfAccounts() {
     try {
       setSaving(true)
       await AccountingService.deleteAccountType(type.id)
+      
       toast({
         title: "Success",
         description: "Account type deleted successfully",
@@ -224,9 +310,10 @@ export default function ChartOfAccounts() {
     setAccountFormData({
       code: "",
       name: "",
-      account_type_id: "",
-      parent_account_id: "",
       description: "",
+      account_type_id: "",
+      parent_account_id: "none",
+      is_header: false,
     })
     setEditingAccount(null)
   }
@@ -252,11 +339,11 @@ export default function ChartOfAccounts() {
 
   const getAccountTypeColor = (type: string) => {
     const colors = {
-      Asset: "bg-green-100 text-green-800",
-      Liability: "bg-red-100 text-red-800",
+      Assets: "bg-green-100 text-green-800",
+      Liabilities: "bg-red-100 text-red-800",
       Equity: "bg-blue-100 text-blue-800",
       Revenue: "bg-purple-100 text-purple-800",
-      Expense: "bg-orange-100 text-orange-800",
+      Expenses: "bg-orange-100 text-orange-800",
     }
     return colors[type as keyof typeof colors] || "bg-gray-100 text-gray-800"
   }
@@ -290,6 +377,11 @@ export default function ChartOfAccounts() {
           )}
 
           <div className="flex-1 flex items-center gap-3">
+            {account.is_header ? (
+              <FolderOpen className="h-4 w-4 text-blue-600" />
+            ) : (
+              <Folder className="h-4 w-4 text-gray-500" />
+            )}
             <span className="font-mono text-sm text-gray-600">{account.code}</span>
             <span className="font-medium">{account.name}</span>
             <Badge className={getAccountTypeColor(accountTypeName)}>{accountTypeName}</Badge>
@@ -298,9 +390,34 @@ export default function ChartOfAccounts() {
                 {account.account_types.normal_balance === "debit" ? "Dr" : "Cr"}
               </Badge>
             )}
+            {account.is_header && (
+              <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                Header Account
+              </Badge>
+            )}
           </div>
 
           <div className="flex gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEditingAccount(null)
+                setAccountFormData({
+                  code: "",
+                  name: "",
+                  description: "",
+                  account_type_id: account.account_type_id || account.account_type.toLowerCase(),
+                  parent_account_id: account.id,
+                  is_header: false,
+                })
+                setIsAccountDialogOpen(true)
+              }}
+              title="Add Sub-Account"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Add Sub
+            </Button>
             <Button
               variant="ghost"
               size="sm"
@@ -309,18 +426,43 @@ export default function ChartOfAccounts() {
                 setAccountFormData({
                   code: account.code,
                   name: account.name,
-                  account_type_id: account.account_type_id || account.account_type.toLowerCase(),
-                  parent_account_id: account.parent_account_id || "",
                   description: account.description || "",
+                  account_type_id: account.account_type_id || account.account_type.toLowerCase(),
+                  parent_account_id: account.parent_account_id || "none",
+                  is_header: account.is_header || false,
                 })
                 setIsAccountDialogOpen(true)
               }}
             >
               <Edit className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm">
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Account</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to delete the account "{account.name}" ({account.code})?
+                    <br />
+                    <br />
+                    <strong>This action cannot be undone.</strong> The account will only be deleted if it has no transactions or sub-accounts.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => handleDeleteAccount(account)}
+                    className="bg-red-600 hover:bg-red-700"
+                  >
+                    Delete Account
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             <Button
               variant="ghost"
               size="sm"
@@ -355,16 +497,6 @@ export default function ChartOfAccounts() {
 
   return (
     <div className="w-full space-y-6">
-      {showMigrationWarning && (
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            <strong>Database Migration Required:</strong> To use custom account types, please run the database migration
-            script. Currently using default account types only.
-          </AlertDescription>
-        </Alert>
-      )}
-
       <Tabs defaultValue="accounts" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="accounts">Chart of Accounts</TabsTrigger>
@@ -377,7 +509,7 @@ export default function ChartOfAccounts() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Chart of Accounts</CardTitle>
-                  <CardDescription>Manage your company's chart of accounts structure</CardDescription>
+                  <CardDescription>Manage your company's hierarchical chart of accounts structure</CardDescription>
                 </div>
                 <Dialog open={isAccountDialogOpen} onOpenChange={setIsAccountDialogOpen}>
                   <DialogTrigger asChild>
@@ -386,26 +518,41 @@ export default function ChartOfAccounts() {
                       Add Account
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="sm:max-w-[425px]">
+                  <DialogContent className="sm:max-w-[500px]">
                     <DialogHeader>
-                      <DialogTitle>{editingAccount ? "Edit Account" : "Add New Account"}</DialogTitle>
+                      <DialogTitle>
+                        {editingAccount 
+                          ? "Edit Account" 
+                          : accountFormData.parent_account_id && accountFormData.parent_account_id !== "none"
+                            ? "Add Sub-Account" 
+                            : "Add New Account"
+                        }
+                      </DialogTitle>
                       <DialogDescription>
                         {editingAccount
                           ? "Update the account information below."
-                          : "Create a new account in your chart of accounts."}
+                          : accountFormData.parent_account_id && accountFormData.parent_account_id !== "none"
+                            ? "Create a new sub-account under the selected parent account."
+                            : "Create a new account in your chart of accounts."}
                       </DialogDescription>
                     </DialogHeader>
                     <form onSubmit={handleAccountSubmit} className="space-y-4">
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label htmlFor="code">Account Code *</Label>
+                          <div className="flex items-center gap-2">
+                            <Label htmlFor="code">Account Code</Label>
+                            <span className="text-sm text-muted-foreground">(Auto-generated)</span>
+                          </div>
                           <Input
                             id="code"
                             value={accountFormData.code}
                             onChange={(e) => handleAccountInputChange("code", e.target.value)}
-                            placeholder="e.g., 1110"
-                            required
+                            placeholder="Auto-generated when you select account type"
+                            className="bg-muted/50"
                           />
+                          <p className="text-xs text-muted-foreground">
+                            Account codes are automatically generated based on account type and hierarchy
+                          </p>
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="account_type_id">Account Type *</Label>
@@ -452,13 +599,24 @@ export default function ChartOfAccounts() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="none">None (Top Level)</SelectItem>
-                            {accounts.map((account) => (
-                              <SelectItem key={account.id} value={account.id}>
-                                {account.code} - {account.name}
-                              </SelectItem>
-                            ))}
+                            {accounts
+                              .filter((account) => account.is_active)
+                              .map((account) => (
+                                <SelectItem key={account.id} value={account.id}>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono text-sm">{account.code}</span>
+                                    <span>{account.name}</span>
+                                    {account.is_header && (
+                                      <Badge variant="outline" className="text-xs">Header</Badge>
+                                    )}
+                                  </div>
+                                </SelectItem>
+                              ))}
                           </SelectContent>
                         </Select>
+                        <p className="text-xs text-muted-foreground">
+                          Select a parent account to create a sub-account, or leave empty for a top-level account.
+                        </p>
                       </div>
 
                       <div className="space-y-2">
@@ -469,6 +627,15 @@ export default function ChartOfAccounts() {
                           onChange={(e) => handleAccountInputChange("description", e.target.value)}
                           placeholder="Optional description"
                         />
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <Switch
+                          id="is_header"
+                          checked={accountFormData.is_header}
+                          onCheckedChange={(checked) => handleAccountInputChange("is_header", checked)}
+                        />
+                        <Label htmlFor="is_header">Header Account (cannot have transactions)</Label>
                       </div>
 
                       <DialogFooter>
@@ -620,14 +787,37 @@ export default function ChartOfAccounts() {
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteAccountType(type)}
-                        disabled={type.is_system}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={type.is_system}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Account Type</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to delete the account type "{type.name}"?
+                              <br />
+                              <br />
+                              <strong>This action cannot be undone.</strong> The account type will only be deleted if it's not being used by any accounts.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleDeleteAccountType(type)}
+                              className="bg-red-600 hover:bg-red-700"
+                            >
+                              Delete Account Type
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   </Card>
                 ))}

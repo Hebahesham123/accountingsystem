@@ -56,9 +56,8 @@ export default function GeneralLedger() {
   const loadAccounts = async () => {
     try {
       const data = await AccountingService.getChartOfAccounts()
-      // Filter to show only leaf accounts (accounts that can have transactions)
-      const leafAccounts = data.filter((account) => !data.some((child) => child.parent_account_id === account.id))
-      setAccounts(leafAccounts)
+      // Show all accounts - main accounts can also have transactions
+      setAccounts(data)
     } catch (error) {
       toast({
         title: "Error",

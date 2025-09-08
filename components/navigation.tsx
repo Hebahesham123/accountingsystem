@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Calculator, FileText, TrendingUp, BookOpen, BarChart3, Home, Menu, ClipboardList, ShoppingCart } from "lucide-react"
+import { Calculator, FileText, TrendingUp, BookOpen, BarChart3, Home, Menu, ClipboardList } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
 const navigation = [
@@ -14,7 +14,6 @@ const navigation = [
   { name: "Trial Balance", href: "/trial-balance", icon: Calculator },
   { name: "Financial Reports", href: "/financial-reports", icon: TrendingUp },
   { name: "Account Reports", href: "/account-reports", icon: ClipboardList },
-  { name: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart },
 ]
 
 export default function Navigation() {
