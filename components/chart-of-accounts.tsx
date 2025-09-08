@@ -285,6 +285,7 @@ export default function ChartOfAccounts() {
     }
   }
 
+
   const handleDeleteAccountType = async (type: AccountType) => {
     try {
       setSaving(true)
@@ -449,7 +450,13 @@ export default function ChartOfAccounts() {
                     Are you sure you want to delete the account "{account.name}" ({account.code})?
                     <br />
                     <br />
-                    <strong>This action cannot be undone.</strong> The account will only be deleted if it has no transactions or sub-accounts.
+                    <strong>This action cannot be undone.</strong> The account will only be deleted if:
+                    <ul className="list-disc list-inside mt-2 space-y-1">
+                      <li>It has no journal entry lines (transactions)</li>
+                      <li>It has no sub-accounts</li>
+                    </ul>
+                    <br />
+                    If the account has transactions or sub-accounts, the deletion will be prevented to maintain data integrity.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

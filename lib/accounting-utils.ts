@@ -260,6 +260,62 @@ export class AccountingService {
     }
   }
 
+  // Delete account
+  static async deleteAccount(accountId: string): Promise<void> {
+    try {
+      console.log("Attempting to delete account:", accountId)
+      
+      // Check if account can be deleted using the comprehensive check
+      const canDelete = await this.canDeleteAccount(accountId)
+      
+      if (!canDelete) {
+        // Get more specific information about why it can't be deleted
+        const { data: subAccounts } = await supabase
+          .from("accounts")
+          .select("id, code, name")
+          .eq("parent_account_id", accountId)
+          .eq("is_active", true)
+
+        const { data: journalLines } = await supabase
+          .from("journal_entry_lines")
+          .select("id")
+          .eq("account_id", accountId)
+
+        if (subAccounts && subAccounts.length > 0) {
+          const subAccountNames = subAccounts.map(acc => `${acc.code} - ${acc.name}`).join(', ')
+          throw new Error(`Cannot delete account because it has ${subAccounts.length} sub-account(s): ${subAccountNames}. Please delete the sub-accounts first.`)
+        }
+
+        if (journalLines && journalLines.length > 0) {
+          throw new Error(`Cannot delete account because it has ${journalLines.length} journal entry line(s). Please delete or modify the journal entries first.`)
+        }
+
+        throw new Error("Cannot delete account due to data integrity constraints.")
+      }
+
+      console.log("Account is safe to delete, performing soft delete...")
+
+      // Soft delete the account
+      const { error: deleteError } = await supabase
+        .from("accounts")
+        .update({
+          is_active: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", accountId)
+
+      if (deleteError) {
+        console.error("Error deleting account:", deleteError)
+        throw deleteError
+      }
+
+      console.log("Account deleted successfully")
+    } catch (error) {
+      console.error("Error deleting account:", error)
+      throw error
+    }
+  }
+
   // Delete account type
   static async deleteAccountType(id: string): Promise<void> {
     try {
@@ -544,37 +600,6 @@ export class AccountingService {
     }
   }
 
-  // Delete account safely
-  static async deleteAccount(accountId: string): Promise<void> {
-    try {
-      console.log("Attempting to delete account:", accountId)
-      
-      // First check if account can be deleted
-      const canDelete = await this.canDeleteAccount(accountId)
-      
-      if (!canDelete) {
-        throw new Error("Account cannot be deleted because it has transactions or sub-accounts")
-      }
-
-      console.log("Account is safe to delete, performing soft delete...")
-
-      // Soft delete the account
-      const { error } = await supabase
-        .from("accounts")
-        .update({ is_active: false })
-        .eq("id", accountId)
-
-      if (error) {
-        console.error("Error deleting account:", error)
-        throw error
-      }
-
-      console.log("Account deleted successfully")
-    } catch (error) {
-      console.error("Error deleting account:", error)
-      throw new Error("Failed to delete account")
-    }
-  }
 
   // Simple delete account function (fallback)
   static async simpleDeleteAccount(accountId: string): Promise<void> {

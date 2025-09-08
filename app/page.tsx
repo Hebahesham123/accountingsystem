@@ -6,8 +6,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Calculator, FileText, TrendingUp, Users, PieChart, BookOpen, DollarSign, BarChart3 } from "lucide-react"
 import { AccountingService, type DashboardStats } from "@/lib/accounting-utils"
+import ProtectedRoute from "@/components/auth/protected-route"
+import { useAuth } from "@/components/auth/auth-provider"
 
 export default function HomePage() {
+  const { profile } = useAuth()
   const [stats, setStats] = useState<DashboardStats>({
     totalAssets: 0,
     netIncome: 0,
@@ -83,11 +86,14 @@ export default function HomePage() {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="container mx-auto px-4 py-8">
+    <ProtectedRoute>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Comprehensive Accounting System</h1>
+          <h1 className="text-4xl font-bold text-gray-900 mb-4">
+            Welcome back, {profile?.name || 'User'}!
+          </h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
             Complete double-entry bookkeeping system with chart of accounts, journal entries, financial reporting, and
             audit trails. Built for accuracy and compliance.
@@ -223,5 +229,6 @@ export default function HomePage() {
         </div>
       </div>
     </div>
+    </ProtectedRoute>
   )
 }
