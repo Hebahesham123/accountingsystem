@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useState, useEffect } from "react"
-import { Calculator, Save, RotateCcw, Plus, Trash2, Search, ChevronRight, ChevronDown, Upload, Image, X } from "lucide-react"
+import { Calculator, Save, RotateCcw, Plus, Trash2, Search, ChevronRight, ChevronDown, Upload, Image, X, ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -15,6 +15,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { type Account, AccountingService } from "@/lib/accounting-utils"
 import { useToast } from "@/hooks/use-toast"
+import Link from "next/link"
 
 interface JournalLine {
   id: string
@@ -30,7 +31,11 @@ interface HierarchicalAccount extends Account {
   level: number
 }
 
-export default function JournalEntryForm() {
+interface JournalEntryEditFormProps {
+  entry: any
+}
+
+export default function JournalEntryEditForm({ entry }: JournalEntryEditFormProps) {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [hierarchicalAccounts, setHierarchicalAccounts] = useState<HierarchicalAccount[]>([])
   const [loading, setLoading] = useState(false)
@@ -41,28 +46,34 @@ export default function JournalEntryForm() {
   const { toast } = useToast()
 
   const [formData, setFormData] = useState({
-    entry_date: new Date().toISOString().split("T")[0],
-    description: "",
+    entry_date: entry.entry_date?.split('T')[0] || new Date().toISOString().split("T")[0],
+    description: entry.description || "",
   })
-  const [entryNumber, setEntryNumber] = useState<string>("")
 
-  const [lines, setLines] = useState<JournalLine[]>([
-    { id: "1", account_id: "", description: "", type: "debit", amount: 0 },
-    { id: "2", account_id: "", description: "", type: "credit", amount: 0 },
-  ])
+  const [lines, setLines] = useState<JournalLine[]>([])
 
   useEffect(() => {
     loadAccounts()
-    generateEntryNumber()
+    initializeFormData()
   }, [])
 
-  const generateEntryNumber = async () => {
-    try {
-      const number = await AccountingService.generateEntryNumber()
-      setEntryNumber(number)
-    } catch (error) {
-      console.error("Error generating entry number:", error)
-      setEntryNumber("JE-001") // Fallback
+  const initializeFormData = () => {
+    if (entry.journal_entry_lines && entry.journal_entry_lines.length > 0) {
+      const journalLines: JournalLine[] = entry.journal_entry_lines.map((line: any, index: number) => ({
+        id: line.id || `line-${index}`,
+        account_id: line.account_id || "",
+        description: line.description || "",
+        type: line.debit_amount > 0 ? "debit" : "credit",
+        amount: line.debit_amount > 0 ? line.debit_amount : line.credit_amount,
+        image_data: line.image_data,
+      }))
+      setLines(journalLines)
+    } else {
+      // Default empty lines if no lines exist
+      setLines([
+        { id: "1", account_id: "", description: "", type: "debit", amount: 0 },
+        { id: "2", account_id: "", description: "", type: "credit", amount: 0 },
+      ])
     }
   }
 
@@ -76,7 +87,6 @@ export default function JournalEntryForm() {
       const hierarchical = buildAccountHierarchy(data)
       setHierarchicalAccounts(hierarchical)
     } catch (error) {
-      console.error("Error loading accounts:", error)
       toast({
         title: "Error",
         description: "Failed to load accounts",
@@ -342,18 +352,6 @@ export default function JournalEntryForm() {
     return Math.abs(getTotalDebits() - getTotalCredits()) < 0.01
   }
 
-  const resetForm = () => {
-    setFormData({
-      entry_date: new Date().toISOString().split("T")[0],
-      description: "",
-    })
-    setLines([
-      { id: "1", account_id: "", description: "", type: "debit", amount: 0 },
-      { id: "2", account_id: "", description: "", type: "credit", amount: 0 },
-    ])
-    generateEntryNumber() // Generate new entry number for next entry
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -392,6 +390,7 @@ export default function JournalEntryForm() {
 
       // Convert lines to the format expected by the service
       const entryLines = validLines.map((line) => ({
+        id: line.id.startsWith('line-') ? undefined : line.id, // Don't include temp IDs
         account_id: line.account_id,
         description: line.description || formData.description,
         debit_amount: line.type === "debit" ? line.amount : 0,
@@ -399,7 +398,7 @@ export default function JournalEntryForm() {
         image_data: line.image_data,
       }))
 
-      await AccountingService.createJournalEntry({
+      await AccountingService.updateJournalEntry(entry.id, {
         entry_date: formData.entry_date,
         description: formData.description,
         lines: entryLines,
@@ -407,29 +406,23 @@ export default function JournalEntryForm() {
 
       toast({
         title: "Success",
-        description: `Journal entry ${entryNumber} created successfully`,
+        description: `Journal entry ${entry.entry_number} updated successfully`,
       })
 
-      resetForm()
+      // Wait a moment for the toast to show, then redirect
+      setTimeout(() => {
+        window.location.href = '/journal-entries'
+      }, 1000)
     } catch (error) {
+      console.error("Error updating journal entry:", error)
       toast({
         title: "Error",
-        description: "Failed to create journal entry",
+        description: error instanceof Error ? error.message : "Failed to update journal entry",
         variant: "destructive",
       })
     } finally {
       setLoading(false)
     }
-  }
-
-  const getAccountName = (accountId: string) => {
-    const account = accounts.find((a) => a.id === accountId)
-    return account ? `${account.code} - ${account.name}` : ""
-  }
-
-  const getAccountType = (accountId: string) => {
-    const account = accounts.find((a) => a.id === accountId)
-    return account?.account_type || ""
   }
 
   const getAccountDisplayInfo = (accountId: string) => {
@@ -511,14 +504,23 @@ export default function JournalEntryForm() {
     <div className="w-full space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calculator className="h-5 w-5" />
-            Create Journal Entry
-          </CardTitle>
-          <CardDescription>
-            Create a journal entry with multiple lines. Each line can be either debit or credit.
-            You can select any account or sub-account from the chart of accounts.
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Calculator className="h-5 w-5" />
+                Edit Journal Entry
+              </CardTitle>
+              <CardDescription>
+                Edit journal entry: {entry.entry_number}
+              </CardDescription>
+            </div>
+            <Link href="/journal-entries">
+              <Button variant="outline">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Entries
+              </Button>
+            </Link>
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -538,7 +540,7 @@ export default function JournalEntryForm() {
                 <Label>Entry Number</Label>
                 <div className="flex items-center h-10 px-3 py-2 border border-input bg-muted rounded-md">
                   <Badge variant="outline" className="font-mono">
-                    {entryNumber || "Loading..."}
+                    {entry.entry_number}
                   </Badge>
                 </div>
               </div>
@@ -857,13 +859,14 @@ export default function JournalEntryForm() {
 
             {/* Form Actions */}
             <div className="flex justify-end gap-3">
-              <Button type="button" variant="outline" onClick={resetForm}>
-                <RotateCcw className="h-4 w-4 mr-2" />
-                Reset
-              </Button>
+              <Link href="/journal-entries">
+                <Button type="button" variant="outline">
+                  Cancel
+                </Button>
+              </Link>
               <Button type="submit" disabled={loading || !isBalanced()}>
                 <Save className="h-4 w-4 mr-2" />
-                {loading ? "Creating..." : "Create Entry"}
+                {loading ? "Updating..." : "Update Entry"}
               </Button>
             </div>
           </form>

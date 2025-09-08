@@ -905,6 +905,84 @@ export class AccountingService {
     }
   }
 
+  // Get a single journal entry by ID
+  static async getJournalEntryById(id: string): Promise<any | null> {
+    try {
+      // Get the journal entry
+      const { data: entry, error: entryError } = await supabase
+        .from("journal_entries")
+        .select("*")
+        .eq("id", id)
+        .single()
+
+      if (entryError) {
+        console.error("Error fetching journal entry:", entryError)
+        return null
+      }
+
+      if (!entry) {
+        return null
+      }
+
+      // Get the journal entry lines first
+      const { data: lines, error: linesError } = await supabase
+        .from("journal_entry_lines")
+        .select("*")
+        .eq("journal_entry_id", id)
+        .order("line_number", { ascending: true })
+
+      if (linesError) {
+        console.error("Error fetching journal entry lines:", linesError)
+        // Return entry without lines rather than failing
+        return entry
+      }
+
+      // Get account details for each line
+      const linesWithAccounts = []
+      if (lines && lines.length > 0) {
+        for (const line of lines) {
+          const { data: account, error: accountError } = await supabase
+            .from("accounts")
+            .select(`
+              id,
+              code,
+              name,
+              account_types (
+                id,
+                name,
+                normal_balance,
+                description
+              )
+            `)
+            .eq("id", line.account_id)
+            .single()
+
+          if (accountError) {
+            console.error("Error fetching account for line:", accountError)
+            // Add line without account details
+            linesWithAccounts.push({
+              ...line,
+              accounts: null
+            })
+          } else {
+            linesWithAccounts.push({
+              ...line,
+              accounts: account
+            })
+          }
+        }
+      }
+
+      return {
+        ...entry,
+        journal_entry_lines: linesWithAccounts
+      }
+    } catch (error) {
+      console.error("Error loading journal entry:", error)
+      return null
+    }
+  }
+
   // Get all journal entries with filtering (simplified query)
   static async getJournalEntries(filters?: {
     startDate?: string
@@ -993,6 +1071,79 @@ export class AccountingService {
     } catch (error) {
       console.error("Error loading journal entries:", error)
       throw new Error("Failed to load journal entries")
+    }
+  }
+
+  // Update journal entry
+  static async updateJournalEntry(entryId: string, data: {
+    entry_date: string
+    description: string
+    lines: Array<{
+      id?: string
+      account_id: string
+      description: string
+      debit_amount: number
+      credit_amount: number
+      image_data?: string
+    }>
+  }): Promise<void> {
+    try {
+      // Update the main journal entry
+      const { error: entryError } = await supabase
+        .from("journal_entries")
+        .update({
+          entry_date: data.entry_date,
+          description: data.description,
+          total_debit: data.lines.reduce((sum, line) => sum + line.debit_amount, 0),
+          total_credit: data.lines.reduce((sum, line) => sum + line.credit_amount, 0),
+          is_balanced: Math.abs(data.lines.reduce((sum, line) => sum + line.debit_amount, 0) - data.lines.reduce((sum, line) => sum + line.credit_amount, 0)) < 0.01,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", entryId)
+
+      if (entryError) {
+        console.error("Error updating journal entry:", entryError)
+        throw entryError
+      }
+
+      // Delete existing lines
+      const { error: deleteError } = await supabase
+        .from("journal_entry_lines")
+        .delete()
+        .eq("journal_entry_id", entryId)
+
+      if (deleteError) {
+        console.error("Error deleting journal entry lines:", deleteError)
+        throw deleteError
+      }
+
+      // Insert new lines
+      const linesToInsert = data.lines.map((line, index) => ({
+        journal_entry_id: entryId,
+        account_id: line.account_id,
+        description: line.description,
+        debit_amount: line.debit_amount,
+        credit_amount: line.credit_amount,
+        line_number: index + 1,
+        image_data: line.image_data || null,
+      }))
+
+      console.log("Inserting journal entry lines:", linesToInsert)
+
+      const { error: linesError } = await supabase
+        .from("journal_entry_lines")
+        .insert(linesToInsert)
+
+      if (linesError) {
+        console.error("Error inserting journal entry lines:", linesError)
+        console.error("Lines data:", linesToInsert)
+        throw linesError
+      }
+
+      console.log("Successfully updated journal entry:", entryId)
+    } catch (error) {
+      console.error("Error updating journal entry:", error)
+      throw new Error("Failed to update journal entry")
     }
   }
 
