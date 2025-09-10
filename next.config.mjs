@@ -15,7 +15,6 @@ const nextConfig = {
   // External packages for server-side rendering
   experimental: {
     serverExternalPackages: ['@supabase/supabase-js'],
-    optimizeCss: true,
   },
 
   // (Optional) You can remove this whole block if you just rely on process.env at runtime.
