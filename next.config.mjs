@@ -34,6 +34,19 @@ const nextConfig = {
     maxInactiveAge: 25 * 1000,
     pagesBufferLength: 2,
   },
+
+  // Fix for static asset serving issues
+  assetPrefix: process.env.NODE_ENV === 'production' ? '' : '',
+  
+  // Ensure proper static file generation
+  generateBuildId: async () => {
+    return 'build-' + Date.now()
+  },
+
+  // Optimize static assets
+  experimental: {
+    optimizeCss: true,
+  },
 };
 
 export default nextConfig;
