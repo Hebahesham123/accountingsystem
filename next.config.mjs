@@ -12,8 +12,11 @@ const nextConfig = {
     unoptimized: true,
   },
 
-  // ⬇️ Next 15 change: moved out of "experimental"
-  serverExternalPackages: ['@supabase/supabase-js'],
+  // External packages for server-side rendering
+  experimental: {
+    serverExternalPackages: ['@supabase/supabase-js'],
+    optimizeCss: true,
+  },
 
   // (Optional) You can remove this whole block if you just rely on process.env at runtime.
   // NEXT_PUBLIC_* variables are automatically inlined if set in the environment.
@@ -43,10 +46,6 @@ const nextConfig = {
     return 'build-' + Date.now()
   },
 
-  // Optimize static assets
-  experimental: {
-    optimizeCss: true,
-  },
 };
 
 export default nextConfig;
