@@ -279,3 +279,4 @@ SELECT
     (SELECT COUNT(*) FROM accounts) as accounts_count,
     (SELECT COUNT(*) FROM accounts WHERE is_header = true) as header_accounts_count;
 
+

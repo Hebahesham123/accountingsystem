@@ -5,6 +5,7 @@ import "./globals.css"
 import { Toaster } from "@/components/ui/toaster"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/components/auth/auth-provider"
+import { DomainErrorHandler } from "@/components/domain-error-handler"
 import Navigation from "@/components/navigation"
 
 const inter = Inter({ subsets: ["latin"] })
@@ -24,11 +25,13 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
-          <AuthProvider>
-            <Navigation />
-            <main>{children}</main>
-            <Toaster />
-          </AuthProvider>
+          <DomainErrorHandler>
+            <AuthProvider>
+              <Navigation />
+              <main>{children}</main>
+              <Toaster />
+            </AuthProvider>
+          </DomainErrorHandler>
         </ThemeProvider>
       </body>
     </html>

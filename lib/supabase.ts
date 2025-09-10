@@ -1,13 +1,29 @@
 import { createClient } from "@supabase/supabase-js"
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+// Get Supabase configuration with fallbacks
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+// Validate configuration
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('Missing Supabase configuration. Please check your environment variables.')
+  throw new Error('Supabase configuration is missing')
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    flowType: 'pkce'
+    flowType: 'pkce',
+    // Better domain handling
+    storageKey: 'sb-auth-token'
+  },
+  // Better error handling for domain deployment
+  global: {
+    headers: {
+      'X-Client-Info': 'accounting-system'
+    }
   }
 })
 

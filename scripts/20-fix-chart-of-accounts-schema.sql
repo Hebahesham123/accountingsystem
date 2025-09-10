@@ -266,3 +266,4 @@ FROM accounts a
 JOIN account_types at ON a.account_type_id = at.id
 ORDER BY a.code;
 
+

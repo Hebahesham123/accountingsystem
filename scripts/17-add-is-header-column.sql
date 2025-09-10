@@ -43,3 +43,4 @@ FROM information_schema.columns
 WHERE table_name = 'accounts' 
 AND column_name = 'is_header';
 
+

@@ -190,3 +190,4 @@ The system automatically generates account codes based on:
 - **Integration**: Connect with external accounting systems
 - **Multi-Company**: Support for multiple companies/entities
 
+
